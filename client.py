@@ -15,7 +15,7 @@ from openenv.core.env_server.types import State
 from models import RAGDebugAction, RAGDebugObservation
 
 
-class RagDebugEnv(
+class RAGDebugEnv(
     EnvClient[RAGDebugAction, RAGDebugObservation, State]
 ):
     """

@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 
-from src.models import FaultType
+from ..models import FaultType
 
 
 def apply_faults(

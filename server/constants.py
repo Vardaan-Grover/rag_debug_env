@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List
 
-from src.models import Domain, EmbeddingModel, FaultType
+from ..models import Domain, EmbeddingModel, FaultType
 
 _CORPORA_DIR = Path(__file__).parent.parent / "corpora"
 

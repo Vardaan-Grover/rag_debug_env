@@ -42,10 +42,6 @@ except (ImportError, ModuleNotFoundError):
     from models import RAGDebugAction, RAGDebugObservation
     from server.rag_debug_env_environment import RagDebugEnvironment
 
-# Aliases for backward compatibility
-RagDebugAction = RAGDebugAction
-RagDebugObservation = RAGDebugObservation
-
 
 # Create the app with web interface and README integration
 app = create_app(

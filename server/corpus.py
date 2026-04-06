@@ -5,7 +5,7 @@ from typing import Dict
 from pathlib import Path
 import numpy as np
 
-from src.server.constants import _CORPORA_DIR
+from constants import _CORPORA_DIR
 
 _corpus_cache: Dict[str, Dict] = {}
 

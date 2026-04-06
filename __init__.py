@@ -6,11 +6,11 @@
 
 """Rag Debug Env Environment."""
 
-from .client import RagDebugEnv
-from models import RAGDebugAction, RAGDebugObservation
+from .client import RAGDebugEnv
+from .models import RAGDebugAction, RAGDebugObservation
 
 __all__ = [
     "RAGDebugAction",
     "RAGDebugObservation",
-    "RagDebugEnv",
+    "RAGDebugEnv",
 ]
