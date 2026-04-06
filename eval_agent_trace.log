@@ -1,0 +1,543 @@
+
+--- LLM System Prompt ---
+You are an expert RAG (Retrieval-Augmented Generation) pipeline debugger.
+
+Your job is to diagnose why a RAG pipeline is performing poorly and take
+corrective actions to restore retrieval quality. You will be given an
+observation describing the current pipeline state, per-query results, and
+aggregate metrics.
+
+## Available Actions
+
+| Action               | Required param       | Effect                              |
+|----------------------|----------------------|-------------------------------------|
+| adjust_chunk_size    | int_value (64-2048)  | Change chunk size                   |
+| adjust_chunk_overlap | int_value (0-500)    | Change chunk overlap                |
+| adjust_threshold     | float_value (0.0-1.0)| Change similarity threshold         |
+| adjust_top_k         | int_value (1-50)     | Change number of retrieved chunks   |
+| swap_embedding_model | model_name           | Switch embedding model              |
+| toggle_reranking     | enabled (bool)       | Enable/disable cross-encoder rerank |
+| adjust_context_limit | int_value (512-16384)| Change context window limit         |
+| rewrite_query        | query_id (int)       | Boost a specific query              |
+| submit               | (none)               | Submit — ends the episode           |
+
+## Embedding Models
+- "general"  — all-purpose (sentence-transformers/all-MiniLM-L6-v2)
+- "medical"  — biomedical text (PubMedBert-MS-MARCO)
+- "legal"    — legal documents (legal-bert-base-uncased)
+- "code"     — code + docstrings (codebert-base)
+
+## Diagnostic Heuristics
+- Low coverage + low precision + many empty retrievals → threshold may be too high, or top_k too small
+- Low coverage + moderate precision → top_k too small, or embedding model mismatch
+- Many retrieved chunks but low coverage → duplicate flooding, or threshold too low letting noise through
+- Score distribution compressed (all scores similar) → wrong embedding model, or chunk too large
+- Coverage plateaus despite config changes → wrong embedding model (especially on domain-specific text)
+- Context overflow → increase context_limit or decrease top_k
+- Submit only when mean_coverage >= 0.70 and no empty retrievals
+
+Fill in only the param field relevant to your chosen action. Leave others as null.
+
+
+--- LLM Input (step 0) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 0 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.3
+  top_k             = 10
+  embedding_model   = general
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.125
+  empty retrievals = 0
+  context overflows = 2
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=4  scores: min=0.307 max=0.427 mean=0.367
+  Q39: coverage=1.000 precision=0.125 retrieved=8  scores: min=0.302 max=0.432 mean=0.366
+  Q44: coverage=1.000 precision=0.300 retrieved=10  scores: min=0.468 max=0.688 mean=0.567
+  Q42: coverage=0.500 precision=0.200 retrieved=5  scores: min=0.313 max=0.381 mean=0.339
+  Q1: coverage=0.000 precision=0.000 retrieved=10  scores: min=0.331 max=0.433 mean=0.375
+
+--- LLM Output (step 0) ---
+{
+  "reasoning": "The current configuration shows low mean coverage (0.500) and low precision (0.125), indicating that the retrieval system is not effectively capturing relevant chunks. The embedding model 'general' may not be suitable for the software domain, leading to poor retrieval performance. Additionally, the similarity threshold of 0.3 could be too low, allowing irrelevant chunks to be retrieved, while the top_k of 10 may not be sufficient to capture all relevant chunks. Therefore, I will swap the embedding model to a more domain-specific one, such as 'code', to improve retrieval quality.",
+  "action_type": "swap_embedding_model",
+  "int_value": null,
+  "float_value": null,
+  "model_name": "code",
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage (0.500) and low precision (0.125), indicating that the retrieval system is not effectively capturing relevant chunks. The embedding model 'general' may not be suitable for the software domain, leading to poor retrieval performance. Additionally, the similarity threshold of 0.3 could be too low, allowing irrelevant chunks to be retrieved, while the top_k of 10 may not be sufficient to capture all relevant chunks. Therefore, I will swap the embedding model to a more domain-specific one, such as 'code', to improve retrieval quality.\",\"action_type\":\"swap_embedding_model\",\"int_value\":null,\"float_value\":null,\"model_name\":\"code\",\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 0) --- prompt=1094 completion=152 total=1246
+
+--- LLM Input (step 1) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 1 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.3
+  top_k             = 10
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.100
+  empty retrievals = 0
+  context overflows = 4
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=10  scores: min=0.480 max=0.585 mean=0.509
+  Q39: coverage=1.000 precision=0.100 retrieved=10  scores: min=0.466 max=0.574 mean=0.495
+  Q44: coverage=1.000 precision=0.300 retrieved=10  scores: min=0.574 max=0.740 mean=0.632
+  Q42: coverage=0.500 precision=0.100 retrieved=10  scores: min=0.487 max=0.587 mean=0.517
+  Q1: coverage=0.000 precision=0.000 retrieved=10  scores: min=0.476 max=0.590 mean=0.518
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+
+--- LLM Output (step 1) ---
+{
+  "reasoning": "The current embedding model 'code' is appropriate for a Python-documentation corpus, but the mean coverage is low, and there are queries with zero coverage. The similarity threshold of 0.3 may be too low, allowing too many irrelevant chunks to be retrieved. Additionally, the context overflow indicates that the context window limit may need to be adjusted. I will first increase the similarity threshold to improve precision and reduce noise in the retrievals.",
+  "action_type": "adjust_threshold",
+  "int_value": 0,
+  "float_value": 0.5,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current embedding model 'code' is appropriate for a Python-documentation corpus, but the mean coverage is low, and there are queries with zero coverage. The similarity threshold of 0.3 may be too low, allowing too many irrelevant chunks to be retrieved. Additionally, the context overflow indicates that the context window limit may need to be adjusted. I will first increase the similarity threshold to improve precision and reduce noise in the retrievals.\",\"action_type\":\"adjust_threshold\",\"int_value\":0,\"float_value\":0.5,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 1) --- prompt=1120 completion=124 total=1244
+
+--- LLM Input (step 2) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 2 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.5
+  top_k             = 10
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.300
+  mean_precision   = 0.093
+  empty retrievals = 0
+  context overflows = 0
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=6  scores: min=0.503 max=0.585 mean=0.524
+  Q39: coverage=0.000 precision=0.000 retrieved=4  scores: min=0.501 max=0.574 mean=0.523
+  Q44: coverage=1.000 precision=0.300 retrieved=10  scores: min=0.574 max=0.740 mean=0.632
+  Q42: coverage=0.500 precision=0.167 retrieved=6  scores: min=0.510 max=0.587 mean=0.534
+  Q1: coverage=0.000 precision=0.000 retrieved=5  scores: min=0.513 max=0.590 mean=0.548
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+
+--- LLM Output (step 2) ---
+{
+  "reasoning": "The current configuration shows low mean coverage and precision, indicating that the retrieval quality is poor. The embedding model is already set to 'code', which is appropriate for a Python-documentation corpus. However, the similarity threshold of 0.5 may be too high, leading to low coverage as it filters out potentially relevant chunks. Additionally, the top_k value of 10 might be too small to capture enough relevant chunks. I will lower the threshold to allow more chunks to be retrieved and increase top_k to ensure a broader selection of candidates for retrieval.",
+  "action_type": "adjust_threshold",
+  "int_value": 0,
+  "float_value": 0.4,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage and precision, indicating that the retrieval quality is poor. The embedding model is already set to 'code', which is appropriate for a Python-documentation corpus. However, the similarity threshold of 0.5 may be too high, leading to low coverage as it filters out potentially relevant chunks. Additionally, the top_k value of 10 might be too small to capture enough relevant chunks. I will lower the threshold to allow more chunks to be retrieved and increase top_k to ensure a broader selection of candidates for retrieval.\",\"action_type\":\"adjust_threshold\",\"int_value\":0,\"float_value\":0.4,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 2) --- prompt=1141 completion=146 total=1287
+
+--- LLM Input (step 3) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 3 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 10
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.100
+  empty retrievals = 0
+  context overflows = 4
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=10  scores: min=0.480 max=0.585 mean=0.509
+  Q39: coverage=1.000 precision=0.100 retrieved=10  scores: min=0.466 max=0.574 mean=0.495
+  Q44: coverage=1.000 precision=0.300 retrieved=10  scores: min=0.574 max=0.740 mean=0.632
+  Q42: coverage=0.500 precision=0.100 retrieved=10  scores: min=0.487 max=0.587 mean=0.517
+  Q1: coverage=0.000 precision=0.000 retrieved=10  scores: min=0.476 max=0.590 mean=0.518
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+
+--- LLM Output (step 3) ---
+{
+  "reasoning": "The current configuration shows low mean coverage and precision, indicating that the retrieval system is not effectively finding relevant chunks. The embedding model is set to 'code', which is appropriate for Python documentation, but the similarity threshold of 0.4 may be too high, limiting the number of relevant chunks retrieved. Additionally, the context overflows suggest that the context window limit is not accommodating the number of retrieved chunks. I will adjust the top_k to a higher value to increase the number of retrieved chunks, which should help improve coverage.",
+  "action_type": "adjust_top_k",
+  "int_value": 20,
+  "float_value": null,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage and precision, indicating that the retrieval system is not effectively finding relevant chunks. The embedding model is set to 'code', which is appropriate for Python documentation, but the similarity threshold of 0.4 may be too high, limiting the number of relevant chunks retrieved. Additionally, the context overflows suggest that the context window limit is not accommodating the number of retrieved chunks. I will adjust the top_k to a higher value to increase the number of retrieved chunks, which should help improve coverage.\",\"action_type\":\"adjust_top_k\",\"int_value\":20,\"float_value\":null,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 3) --- prompt=1163 completion=140 total=1303
+
+--- LLM Input (step 4) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 4 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 20
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.050
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=20  scores: min=0.438 max=0.585 mean=0.481
+  Q39: coverage=1.000 precision=0.050 retrieved=20  scores: min=0.415 max=0.574 mean=0.466
+  Q44: coverage=1.000 precision=0.150 retrieved=20  scores: min=0.496 max=0.740 mean=0.572
+  Q42: coverage=0.500 precision=0.050 retrieved=20  scores: min=0.448 max=0.587 mean=0.492
+  Q1: coverage=0.000 precision=0.000 retrieved=20  scores: min=0.426 max=0.590 mean=0.480
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+
+--- LLM Output (step 4) ---
+{
+  "reasoning": "The current configuration shows low mean coverage (0.500) and low precision (0.050), indicating that the retrieval system is not effectively capturing relevant chunks. The scores for the queries are also tightly clustered, suggesting that the embedding model may not be suitable for the Python-documentation corpus. Additionally, there are context overflows, which means that the context limit is too low for the number of retrieved chunks. To improve coverage, I will increase the top_k value to retrieve more chunks, which may help capture more relevant information. This should help address the low coverage issue.",
+  "action_type": "adjust_top_k",
+  "int_value": 30,
+  "float_value": null,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage (0.500) and low precision (0.050), indicating that the retrieval system is not effectively capturing relevant chunks. The scores for the queries are also tightly clustered, suggesting that the embedding model may not be suitable for the Python-documentation corpus. Additionally, there are context overflows, which means that the context limit is too low for the number of retrieved chunks. To improve coverage, I will increase the top_k value to retrieve more chunks, which may help capture more relevant information. This should help address the low coverage issue.\",\"action_type\":\"adjust_top_k\",\"int_value\":30,\"float_value\":null,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 4) --- prompt=1183 completion=150 total=1333
+
+--- LLM Input (step 5) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 5 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 30
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.034
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.402 max=0.585 mean=0.458
+  Q39: coverage=1.000 precision=0.038 retrieved=26  scores: min=0.402 max=0.574 mean=0.453
+  Q44: coverage=1.000 precision=0.100 retrieved=30  scores: min=0.466 max=0.740 mean=0.539
+  Q42: coverage=0.500 precision=0.033 retrieved=30  scores: min=0.417 max=0.587 mean=0.471
+  Q1: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.412 max=0.590 mean=0.460
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+  5. adjust_top_k({'value': 30})  reward=-0.125
+
+--- LLM Output (step 5) ---
+{
+  "reasoning": "The current configuration shows low mean coverage and precision, with many queries returning no relevant chunks. The embedding model is appropriate for the software domain, but the chunk size and overlap may be causing issues with retrieval quality. Additionally, the context overflow indicates that the context limit is being exceeded, which can negatively impact retrieval. I will increase the chunk size to allow for more comprehensive chunks while also adjusting the context limit to accommodate the number of retrieved chunks without overflow.",
+  "action_type": "adjust_chunk_size",
+  "int_value": 1024,
+  "float_value": null,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage and precision, with many queries returning no relevant chunks. The embedding model is appropriate for the software domain, but the chunk size and overlap may be causing issues with retrieval quality. Additionally, the context overflow indicates that the context limit is being exceeded, which can negatively impact retrieval. I will increase the chunk size to allow for more comprehensive chunks while also adjusting the context limit to accommodate the number of retrieved chunks without overflow.\",\"action_type\":\"adjust_chunk_size\",\"int_value\":1024,\"float_value\":null,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 5) --- prompt=1203 completion=126 total=1329
+
+--- LLM Input (step 6) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 6 / 10
+
+## Current Pipeline Config
+  chunk_size        = 1024
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 30
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.037
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.404 max=0.601 mean=0.457
+  Q39: coverage=1.000 precision=0.050 retrieved=20  scores: min=0.402 max=0.526 mean=0.452
+  Q44: coverage=1.000 precision=0.100 retrieved=30  scores: min=0.452 max=0.740 mean=0.526
+  Q42: coverage=0.500 precision=0.033 retrieved=30  scores: min=0.412 max=0.582 mean=0.463
+  Q1: coverage=0.000 precision=0.000 retrieved=29  scores: min=0.404 max=0.566 mean=0.451
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+  5. adjust_top_k({'value': 30})  reward=-0.125
+  6. adjust_chunk_size({'value': 1024})  reward=-0.019
+
+--- LLM Output (step 6) ---
+{
+  "reasoning": "The current configuration shows low mean coverage (0.500) and very low precision (0.037), indicating that the retrieval system is not effectively finding relevant chunks. The scores for the queries are also tightly clustered, suggesting that the chunk size may be too large, which can lead to a compressed score distribution. Additionally, there are context overflows, indicating that the context window limit is not sufficient for the number of retrieved chunks. To improve coverage, I will reduce the chunk size to allow for more granular retrievals, which can help in better distinguishing relevant chunks. I will also increase the top_k to retrieve more chunks, which may help in finding relevant information despite the current low precision.",
+  "action_type": "adjust_chunk_size",
+  "int_value": 512,
+  "float_value": null,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage (0.500) and very low precision (0.037), indicating that the retrieval system is not effectively finding relevant chunks. The scores for the queries are also tightly clustered, suggesting that the chunk size may be too large, which can lead to a compressed score distribution. Additionally, there are context overflows, indicating that the context window limit is not sufficient for the number of retrieved chunks. To improve coverage, I will reduce the chunk size to allow for more granular retrievals, which can help in better distinguishing relevant chunks. I will also increase the top_k to retrieve more chunks, which may help in finding relevant information despite the current low precision.\",\"action_type\":\"adjust_chunk_size\",\"int_value\":512,\"float_value\":null,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 6) --- prompt=1225 completion=173 total=1398
+
+--- LLM Input (step 7) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 7 / 10
+
+## Current Pipeline Config
+  chunk_size        = 512
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 30
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.034
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.402 max=0.585 mean=0.458
+  Q39: coverage=1.000 precision=0.038 retrieved=26  scores: min=0.402 max=0.574 mean=0.453
+  Q44: coverage=1.000 precision=0.100 retrieved=30  scores: min=0.466 max=0.740 mean=0.539
+  Q42: coverage=0.500 precision=0.033 retrieved=30  scores: min=0.417 max=0.587 mean=0.471
+  Q1: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.412 max=0.590 mean=0.460
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+  5. adjust_top_k({'value': 30})  reward=-0.125
+  6. adjust_chunk_size({'value': 1024})  reward=-0.019
+  7. adjust_chunk_size({'value': 512})  reward=-0.121
+
+--- LLM Output (step 7) ---
+{
+  "reasoning": "The current configuration shows low mean coverage and precision, indicating that the retrieval quality is poor. The embedding model 'code' is appropriate for the Python-documentation corpus, but the chunk size of 512 may be too large, leading to compressed score distributions and potentially missing relevant chunks. Additionally, the similarity threshold of 0.4 is not yielding enough relevant results, as evidenced by the low coverage and precision metrics. I will adjust the chunk size to a smaller value to increase retrieval granularity and lower the threshold to allow more relevant chunks to be retrieved.",
+  "action_type": "adjust_chunk_size",
+  "int_value": 256,
+  "float_value": null,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage and precision, indicating that the retrieval quality is poor. The embedding model 'code' is appropriate for the Python-documentation corpus, but the chunk size of 512 may be too large, leading to compressed score distributions and potentially missing relevant chunks. Additionally, the similarity threshold of 0.4 is not yielding enough relevant results, as evidenced by the low coverage and precision metrics. I will adjust the chunk size to a smaller value to increase retrieval granularity and lower the threshold to allow more relevant chunks to be retrieved.\",\"action_type\":\"adjust_chunk_size\",\"int_value\":256,\"float_value\":null,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 7) --- prompt=1244 completion=146 total=1390
+
+--- LLM Input (step 8) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 8 / 10
+
+## Current Pipeline Config
+  chunk_size        = 256
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 30
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.500
+  mean_precision   = 0.035
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.415 max=0.546 mean=0.463
+  Q39: coverage=1.000 precision=0.043 retrieved=23  scores: min=0.401 max=0.628 mean=0.472
+  Q44: coverage=1.000 precision=0.100 retrieved=30  scores: min=0.472 max=0.739 mean=0.548
+  Q42: coverage=0.500 precision=0.033 retrieved=30  scores: min=0.410 max=0.564 mean=0.470
+  Q1: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.410 max=0.623 mean=0.468
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+  5. adjust_top_k({'value': 30})  reward=-0.125
+  6. adjust_chunk_size({'value': 1024})  reward=-0.019
+  7. adjust_chunk_size({'value': 512})  reward=-0.121
+  8. adjust_chunk_size({'value': 256})  reward=-0.120
+
+--- LLM Output (step 8) ---
+{
+  "reasoning": "The current configuration shows low mean coverage and precision, indicating that the retrieval system is not effectively capturing relevant chunks. The embedding model is already set to 'code', which is appropriate for a Python-documentation corpus. However, the chunk size of 256 may be too large, leading to a compressed score distribution and potentially missing relevant information. Additionally, the similarity threshold of 0.4 could be too high, which might be filtering out relevant chunks. I will reduce the chunk size to 128 to improve granularity and lower the threshold to 0.3 to allow more relevant chunks to be retrieved.",
+  "action_type": "adjust_chunk_size",
+  "int_value": 128,
+  "float_value": 0.3,
+  "model_name": null,
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low mean coverage and precision, indicating that the retrieval system is not effectively capturing relevant chunks. The embedding model is already set to 'code', which is appropriate for a Python-documentation corpus. However, the chunk size of 256 may be too large, leading to a compressed score distribution and potentially missing relevant information. Additionally, the similarity threshold of 0.4 could be too high, which might be filtering out relevant chunks. I will reduce the chunk size to 128 to improve granularity and lower the threshold to 0.3 to allow more relevant chunks to be retrieved.\",\"action_type\":\"adjust_chunk_size\",\"int_value\":128,\"float_value\":0.3,\"model_name\":null,\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 8) --- prompt=1264 completion=158 total=1422
+
+--- LLM Input (step 9) ---
+## Task 1: Task 1 (Easy — Software): The RAG pipeline has one or two config faults on a Python-documentation corpus. Diagnose the retrieval degradation and fix the pipeline configuration to achieve high coverage of relevant chunks.
+Step 9 / 10
+
+## Current Pipeline Config
+  chunk_size        = 128
+  chunk_overlap     = 50
+  similarity_threshold = 0.4
+  top_k             = 30
+  embedding_model   = code
+  use_reranking     = False
+  context_window_limit = 4096
+
+## Corpus Info
+  domain = software  |  271 chunks  |  48 queries
+  multi-hop queries: 0
+
+## Aggregate Metrics
+  mean_coverage    = 0.700
+  mean_precision   = 0.040
+  empty retrievals = 0
+  context overflows = 5
+
+## Per-Query Results
+  Q36: coverage=0.000 precision=0.000 retrieved=30  scores: min=0.420 max=0.517 mean=0.467
+  Q39: coverage=1.000 precision=0.034 retrieved=29  scores: min=0.402 max=0.683 mean=0.479
+  Q44: coverage=1.000 precision=0.100 retrieved=30  scores: min=0.489 max=0.812 mean=0.574
+  Q42: coverage=0.500 precision=0.033 retrieved=30  scores: min=0.426 max=0.616 mean=0.478
+  Q1: coverage=1.000 precision=0.033 retrieved=30  scores: min=0.409 max=0.620 mean=0.481
+
+## Actions Taken So Far
+  1. swap_embedding_model({'model': 'code'})  reward=-0.027
+  2. adjust_threshold({'value': 0.5})  reward=-0.142
+  3. adjust_threshold({'value': 0.4})  reward=+0.002
+  4. adjust_top_k({'value': 20})  reward=-0.035
+  5. adjust_top_k({'value': 30})  reward=-0.125
+  6. adjust_chunk_size({'value': 1024})  reward=-0.019
+  7. adjust_chunk_size({'value': 512})  reward=-0.121
+  8. adjust_chunk_size({'value': 256})  reward=-0.120
+  9. adjust_chunk_size({'value': 128})  reward=+0.001
+
+--- LLM Output (step 9) ---
+{
+  "reasoning": "The current configuration shows low precision (0.040) despite a mean coverage of 0.700, indicating that while some relevant chunks are being retrieved, they are not of high quality. The scores for the queries are also relatively close together, suggesting that the embedding model may not be effectively distinguishing between relevant and irrelevant chunks. Additionally, there are context overflows, indicating that the context window limit may be too small for the number of retrieved chunks. Given that the embedding model is already set to 'code' and has not improved retrieval quality, I will switch to a more general embedding model to see if it improves the precision and coverage. I will also increase the context limit to accommodate the number of retrieved chunks and avoid context overflows.",
+  "action_type": "swap_embedding_model",
+  "int_value": null,
+  "float_value": null,
+  "model_name": "general",
+  "enabled": null,
+  "query_id": null,
+  "raw_content": "{\"reasoning\":\"The current configuration shows low precision (0.040) despite a mean coverage of 0.700, indicating that while some relevant chunks are being retrieved, they are not of high quality. The scores for the queries are also relatively close together, suggesting that the embedding model may not be effectively distinguishing between relevant and irrelevant chunks. Additionally, there are context overflows, indicating that the context window limit may be too small for the number of retrieved chunks. Given that the embedding model is already set to 'code' and has not improved retrieval quality, I will switch to a more general embedding model to see if it improves the precision and coverage. I will also increase the context limit to accommodate the number of retrieved chunks and avoid context overflows.\",\"action_type\":\"swap_embedding_model\",\"int_value\":null,\"float_value\":null,\"model_name\":\"general\",\"enabled\":null,\"query_id\":null}"
+}
+
+--- LLM Token Usage (step 9) --- prompt=1285 completion=183 total=1468

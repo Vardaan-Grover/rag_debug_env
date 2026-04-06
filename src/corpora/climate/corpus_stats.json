@@ -1,0 +1,9 @@
+{
+  "domain": "climate",
+  "n_documents": 50,
+  "n_chunks": 612,
+  "avg_chunk_tokens": 497,
+  "has_near_duplicates": true,
+  "n_queries": 44,
+  "n_multi_hop_queries": 0
+}

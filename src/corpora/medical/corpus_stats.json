@@ -1,0 +1,9 @@
+{
+  "domain": "medical",
+  "n_documents": 18,
+  "n_chunks": 359,
+  "avg_chunk_tokens": 469,
+  "has_near_duplicates": false,
+  "n_queries": 44,
+  "n_multi_hop_queries": 6
+}

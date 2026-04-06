@@ -1,0 +1,416 @@
+[
+  {
+    "query_id": 0,
+    "text": "What percentage of children are estimated to have severe mental health problems?",
+    "type": "direct",
+    "seed_chunk_id": 97,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 1,
+    "text": "How do socioeconomic factors influence the prevalence of psychosocial problems in children?",
+    "type": "partial",
+    "seed_chunk_id": 97,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 2,
+    "text": "What role does Na+,K+-ATPase play in cells?",
+    "type": "direct",
+    "seed_chunk_id": 264,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 3,
+    "text": "What types of ATPases are found in the mitochondria and what is their function?",
+    "type": "partial",
+    "seed_chunk_id": 264,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 4,
+    "text": "What year was the first IVF baby born in Britain?",
+    "type": "direct",
+    "seed_chunk_id": 315,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 5,
+    "text": "How many babies have been born in the United States using assisted reproductive technologies?",
+    "type": "partial",
+    "seed_chunk_id": 315,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 6,
+    "text": "What happens to a bone when it is stripped of its periosteum?",
+    "type": "direct",
+    "seed_chunk_id": 231,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 7,
+    "text": "What are the two general categories of joints?",
+    "type": "partial",
+    "seed_chunk_id": 231,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 8,
+    "text": "What should be included in the neurologic examination to avoid omissions and facilitate subsequent analysis of records?",
+    "type": "direct",
+    "seed_chunk_id": 257,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 9,
+    "text": "What aspects of the general physical examination may be particularly informative in a patient with neurologic disease?",
+    "type": "partial",
+    "seed_chunk_id": 257,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 10,
+    "text": "What are the three acidic dyes used in the Mallory staining technique?",
+    "type": "direct",
+    "seed_chunk_id": 150,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 11,
+    "text": "How does the selective staining of tissue components by acidic dyes occur?",
+    "type": "partial",
+    "seed_chunk_id": 150,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 12,
+    "text": "What is a classic example of metaplasia and what causes it?",
+    "type": "direct",
+    "seed_chunk_id": 57,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 13,
+    "text": "What should the written history of an illness include?",
+    "type": "direct",
+    "seed_chunk_id": 67,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 14,
+    "text": "Why is it important for patients to feel comfortable with their physician during the history-taking process?",
+    "type": "partial",
+    "seed_chunk_id": 67,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 15,
+    "text": "How does the nucleotide sequence of DNA relate to the function of proteins?",
+    "type": "partial",
+    "seed_chunk_id": 329,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 16,
+    "text": "What is the L-form of amino acids found in?",
+    "type": "direct",
+    "seed_chunk_id": 183,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 17,
+    "text": "What are the characteristics of amino acids regarding their chirality and isomeric forms?",
+    "type": "partial",
+    "seed_chunk_id": 183,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 18,
+    "text": "What is the chief skill essential for a physician to perceive problems during an interview?",
+    "type": "direct",
+    "seed_chunk_id": 250,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 19,
+    "text": "What approach should a physician take to achieve maximum transmission of information during an interview?",
+    "type": "partial",
+    "seed_chunk_id": 250,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 20,
+    "text": "What is medical pharmacology often defined as?",
+    "type": "direct",
+    "seed_chunk_id": 21,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 21,
+    "text": "What are the two large domains into which the actions of chemicals can be divided?",
+    "type": "partial",
+    "seed_chunk_id": 21,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 22,
+    "text": "What is the role of macrophages and neutrophils in the immune response?",
+    "type": "direct",
+    "seed_chunk_id": 296,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 23,
+    "text": "How do dendritic cells activate T lymphocytes?",
+    "type": "partial",
+    "seed_chunk_id": 296,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 24,
+    "text": "What is the function of the glycocalyx on the extracellular face of the plasma membrane?",
+    "type": "direct",
+    "seed_chunk_id": 358,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 25,
+    "text": "What types of proteins are typically required for larger polar molecules to cross plasma membranes?",
+    "type": "partial",
+    "seed_chunk_id": 358,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 26,
+    "text": "What is the most common reason for hospital admissions among children, excluding trauma and newborn admissions?",
+    "type": "direct",
+    "seed_chunk_id": 22,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 27,
+    "text": "How do pediatricians address the increasing concern about environmental toxins and their impact on children's health?",
+    "type": "partial",
+    "seed_chunk_id": 22,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 28,
+    "text": "How do the lungs and kidneys work together to maintain the pH of the extracellular fluid?",
+    "type": "partial",
+    "seed_chunk_id": 45,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 29,
+    "text": "What is considered low birthweight for a newborn?",
+    "type": "direct",
+    "seed_chunk_id": 28,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 30,
+    "text": "What position is typically used for a chest radiograph when the patient is erect?",
+    "type": "direct",
+    "seed_chunk_id": 158,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 31,
+    "text": "What preparation does a patient need to undergo before a double-contrast barium enema examination?",
+    "type": "partial",
+    "seed_chunk_id": 158,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 32,
+    "text": "What are the rates of Alzheimer disease, Parkinson disease, and amyotrophic lateral sclerosis (ALS) among older individuals per 100,000 yearly?",
+    "type": "direct",
+    "seed_chunk_id": 186,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 33,
+    "text": "Why is it important for a physician to enlist the patient's trust and cooperation during a clinical encounter?",
+    "type": "partial",
+    "seed_chunk_id": 186,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 34,
+    "text": "What syndrome is associated with paroxysmal atrial tachycardia due to a bypass tract in the atrium?",
+    "type": "direct",
+    "seed_chunk_id": 194,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 35,
+    "text": "What must be done to paraffin sections before they can be stained for examination?",
+    "type": "direct",
+    "seed_chunk_id": 3,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 36,
+    "text": "What is the purpose of staining a specimen with hematoxylin and eosin?",
+    "type": "partial",
+    "seed_chunk_id": 3,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 37,
+    "text": "What is the hallmark of reversible cellular injury?",
+    "type": "direct",
+    "seed_chunk_id": 60,
+    "is_multi_hop": false,
+    "domain": "medical",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 38,
+    "text": "What role do macrophages and complement proteins play in the inflammatory response associated with systemic lupus erythematosus (SLE)?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      295,
+      347
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  },
+  {
+    "query_id": 39,
+    "text": "What role does complement deficiency play in the pathogenesis of systemic lupus erythematosus (SLE) related to antibody production and inflammatory responses?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      226,
+      347
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  },
+  {
+    "query_id": 40,
+    "text": "What role do RNA transcripts play in targeting Cas9 for gene editing, and how does this relate to the expression of genetic information?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      115,
+      219
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  },
+  {
+    "query_id": 41,
+    "text": "What roles do neutrophils and macrophages play in both innate and adaptive immune responses during infection resolution?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      276,
+      294
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  },
+  {
+    "query_id": 42,
+    "text": "What role do Na+,K+-ATPase and mitochondrial membrane integrity play in preventing irreversible cell injury during ischemic events?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      130,
+      264
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  },
+  {
+    "query_id": 43,
+    "text": "What roles do macrophages play in orchestrating inflammation and phagocytosis during chronic granulomatous disease (CGD) and other innate immune responses?",
+    "type": "multi_hop",
+    "seed_chunk_ids": [
+      276,
+      295
+    ],
+    "is_multi_hop": true,
+    "domain": "medical",
+    "difficulty": "hard"
+  }
+]

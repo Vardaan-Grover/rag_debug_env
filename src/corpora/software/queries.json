@@ -1,0 +1,434 @@
+[
+  {
+    "query_id": 0,
+    "text": "What is the default value for the quantity_on_hand field in the InventoryItem class?",
+    "type": "direct",
+    "seed_chunk_id": 124,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 1,
+    "text": "How does the IntConversionDescriptor handle values that are not integers when setting the quantity_on_hand?",
+    "type": "partial",
+    "seed_chunk_id": 124,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 2,
+    "text": "What module provides robust support for parsing JSON data in Python?",
+    "type": "direct",
+    "seed_chunk_id": 5,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 3,
+    "text": "Which modules support internationalization in Python?",
+    "type": "partial",
+    "seed_chunk_id": 5,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 4,
+    "text": "What types of built-in exceptions are mentioned in the example provided in the error message context?",
+    "type": "direct",
+    "seed_chunk_id": 54,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 5,
+    "text": "How does the 'try' statement work in handling exceptions in Python?",
+    "type": "partial",
+    "seed_chunk_id": 54,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 6,
+    "text": "What does the *preamble* attribute contain in a MIME message?",
+    "type": "direct",
+    "seed_chunk_id": 155,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 7,
+    "text": "What does the *defects* attribute list in a message?",
+    "type": "partial",
+    "seed_chunk_id": 155,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 8,
+    "text": "What encoding must JSON files be in when opened as a text file?",
+    "type": "direct",
+    "seed_chunk_id": 74,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 9,
+    "text": "What are the differences between JSON and pickle regarding serialization?",
+    "type": "partial",
+    "seed_chunk_id": 74,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 10,
+    "text": "How can I see my newly created model repository on Hugging Face after pushing my model?",
+    "type": "direct",
+    "seed_chunk_id": 234,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 11,
+    "text": "What steps do I need to follow to add a model card to my repository?",
+    "type": "partial",
+    "seed_chunk_id": 234,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 12,
+    "text": "What must the main module of a Python application always use for imports?",
+    "type": "direct",
+    "seed_chunk_id": 45,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 13,
+    "text": "What does the special attribute '__path__' in Python packages do?",
+    "type": "partial",
+    "seed_chunk_id": 45,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 14,
+    "text": "What does the print() function do in Python?",
+    "type": "direct",
+    "seed_chunk_id": 20,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 15,
+    "text": "How can you format the output when using the print() function?",
+    "type": "partial",
+    "seed_chunk_id": 20,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 16,
+    "text": "What is a positive lookahead in the context of rules?",
+    "type": "direct",
+    "seed_chunk_id": 107,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 17,
+    "text": "What is the difference between lexical and syntactic analysis?",
+    "type": "partial",
+    "seed_chunk_id": 107,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 18,
+    "text": "What happens when msg* is not given or is 'None'?",
+    "type": "direct",
+    "seed_chunk_id": 141,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 19,
+    "text": "What is the purpose of the InteractiveConsole.push(line) method?",
+    "type": "partial",
+    "seed_chunk_id": 141,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 20,
+    "text": "What happens if a name is not found in a code block in Python?",
+    "type": "direct",
+    "seed_chunk_id": 94,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 21,
+    "text": "How does Python resolve names in a code block?",
+    "type": "partial",
+    "seed_chunk_id": 94,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 22,
+    "text": "What is the command to exit the new interactive shell in Python 3.13?",
+    "type": "direct",
+    "seed_chunk_id": 30,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 23,
+    "text": "What happens when an error occurs in the interactive mode?",
+    "type": "partial",
+    "seed_chunk_id": 30,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 24,
+    "text": "What command is used to install all the necessary packages listed in requirements.txt?",
+    "type": "direct",
+    "seed_chunk_id": 92,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 25,
+    "text": "What does the filecmp.clear_cache() function do?",
+    "type": "direct",
+    "seed_chunk_id": 136,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 26,
+    "text": "What is the purpose of the shallow parameter in the filecmp.dircmp class?",
+    "type": "partial",
+    "seed_chunk_id": 136,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 27,
+    "text": "What are some advantages of using Python compared to C, C++, or Java?",
+    "type": "partial",
+    "seed_chunk_id": 7,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 28,
+    "text": "What is the binary representation of the decimal fraction 0.1?",
+    "type": "direct",
+    "seed_chunk_id": 46,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 29,
+    "text": "Why can't the decimal fraction 1/3 be represented exactly in base 10?",
+    "type": "partial",
+    "seed_chunk_id": 46,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 30,
+    "text": "How is lexicographical ordering for strings determined?",
+    "type": "direct",
+    "seed_chunk_id": 88,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 31,
+    "text": "What happens when comparing two sequences where one is an initial sub-sequence of the other?",
+    "type": "partial",
+    "seed_chunk_id": 88,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 32,
+    "text": "What is the default encoding for Python source files?",
+    "type": "direct",
+    "seed_chunk_id": 10,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 33,
+    "text": "How do you declare an encoding other than the default one in a Python source code file?",
+    "type": "partial",
+    "seed_chunk_id": 10,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 34,
+    "text": "What is the email address for the Python mailing list?",
+    "type": "direct",
+    "seed_chunk_id": 29,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 35,
+    "text": "What should you check before posting to the newsgroup or mailing list?",
+    "type": "partial",
+    "seed_chunk_id": 29,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 36,
+    "text": "What does the getpass.getpass function do?",
+    "type": "direct",
+    "seed_chunk_id": 108,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 37,
+    "text": "What happens if echo free input is unavailable when using the getpass function?",
+    "type": "partial",
+    "seed_chunk_id": 108,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 38,
+    "text": "What is the nan proportion in the column statistics?",
+    "type": "direct",
+    "seed_chunk_id": 213,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 39,
+    "text": "What are the frequencies of the words in the column statistics?",
+    "type": "partial",
+    "seed_chunk_id": 213,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 40,
+    "text": "What is the most popular implementation of Python?",
+    "type": "direct",
+    "seed_chunk_id": 104,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 41,
+    "text": "What are the key features of the Jython implementation of Python?",
+    "type": "partial",
+    "seed_chunk_id": 104,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 42,
+    "text": "What does the method 'InteractiveInterpreter.showtraceback()' do?",
+    "type": "direct",
+    "seed_chunk_id": 140,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 43,
+    "text": "What changes were made to 'InteractiveInterpreter.showtraceback()' in version 3.5?",
+    "type": "partial",
+    "seed_chunk_id": 140,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 44,
+    "text": "How are thread states in Python tied to interpreters and host threads?",
+    "type": "direct",
+    "seed_chunk_id": 102,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 45,
+    "text": "What modules can be used to create new Python threads or processes?",
+    "type": "partial",
+    "seed_chunk_id": 102,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 46,
+    "text": "What file can be created in the user site-packages directory to customize Python behavior for every invocation?",
+    "type": "direct",
+    "seed_chunk_id": 32,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 47,
+    "text": "What is the difference between sitecustomize and usercustomize in Python?",
+    "type": "partial",
+    "seed_chunk_id": 32,
+    "is_multi_hop": false,
+    "domain": "software",
+    "difficulty": "medium"
+  }
+]

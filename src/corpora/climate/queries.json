@@ -1,0 +1,398 @@
+[
+  {
+    "query_id": 0,
+    "text": "Who is credited with the discovery of methane?",
+    "type": "direct",
+    "seed_chunk_id": 61,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 1,
+    "text": "What is the significance of methane in the context of life on Titan?",
+    "type": "partial",
+    "seed_chunk_id": 61,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 2,
+    "text": "What is the chemical formula for dihydrogen?",
+    "type": "direct",
+    "seed_chunk_id": 444,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 3,
+    "text": "What influential essay by Kenneth E. Boulding identified the need for the economic system to fit itself to the ecological system?",
+    "type": "direct",
+    "seed_chunk_id": 331,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 4,
+    "text": "What concepts were linked together in the early 1970s regarding sustainability and development?",
+    "type": "partial",
+    "seed_chunk_id": 331,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 5,
+    "text": "What gases exist in the Earth's atmosphere that are responsible for the greenhouse effect?",
+    "type": "direct",
+    "seed_chunk_id": 86,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 6,
+    "text": "What is the main driver of deforestation according to the information provided?",
+    "type": "direct",
+    "seed_chunk_id": 526,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 7,
+    "text": "What percentage of tropical deforestation between 2000 and 2010 was accounted for by large-scale commercial agriculture?",
+    "type": "partial",
+    "seed_chunk_id": 526,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 8,
+    "text": "What has caused plants and animals in the ocean to migrate towards the colder poles faster than species on land?",
+    "type": "direct",
+    "seed_chunk_id": 20,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 9,
+    "text": "How does climate change affect public health and food security?",
+    "type": "partial",
+    "seed_chunk_id": 20,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 10,
+    "text": "What was patented in 1930 in the natural gas industry to remove CO2 from raw natural gas?",
+    "type": "direct",
+    "seed_chunk_id": 430,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 11,
+    "text": "What percentage of the Amazon rainforest was deforested in 2022?",
+    "type": "direct",
+    "seed_chunk_id": 604,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 12,
+    "text": "What are the main sources of deforestation in the Amazon?",
+    "type": "partial",
+    "seed_chunk_id": 604,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 13,
+    "text": "What does the analycentric approach to environmental policy analysis focus on?",
+    "type": "direct",
+    "seed_chunk_id": 347,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 14,
+    "text": "What are some criticisms of the analycentric approach in environmental policy analysis?",
+    "type": "partial",
+    "seed_chunk_id": 347,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 15,
+    "text": "What measures are taken in the Philippines to maintain fire lines between the forest and villages?",
+    "type": "direct",
+    "seed_chunk_id": 184,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 16,
+    "text": "What methods are being used to manage fire fuels in Northern California?",
+    "type": "partial",
+    "seed_chunk_id": 184,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 17,
+    "text": "What is the global extent of alpine permafrost as established by regional estimates in 2014?",
+    "type": "direct",
+    "seed_chunk_id": 102,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 18,
+    "text": "What conditions led to the formation of subsea permafrost?",
+    "type": "partial",
+    "seed_chunk_id": 102,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 19,
+    "text": "When was the discovery of Pulley Ridge announced?",
+    "type": "direct",
+    "seed_chunk_id": 576,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 20,
+    "text": "What role do zooxanthellae play in the growth of coral reefs?",
+    "type": "partial",
+    "seed_chunk_id": 576,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 21,
+    "text": "What is renewable natural gas also known as?",
+    "type": "direct",
+    "seed_chunk_id": 495,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 22,
+    "text": "What was the earliest known discussion of desertification related to in West Africa?",
+    "type": "direct",
+    "seed_chunk_id": 545,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 23,
+    "text": "What significant event in the 1980s contributed to the modern study of desertification?",
+    "type": "partial",
+    "seed_chunk_id": 545,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 24,
+    "text": "What is required to avoid double counting of emission reductions under the ITMO system?",
+    "type": "direct",
+    "seed_chunk_id": 311,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 25,
+    "text": "How will CDM projects transition to the Article 6.4 program?",
+    "type": "partial",
+    "seed_chunk_id": 311,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 26,
+    "text": "Who speculated about the polar ice caps once reaching as far as the temperate zones of the globe?",
+    "type": "direct",
+    "seed_chunk_id": 205,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 27,
+    "text": "What was the outcome of the examination of the proglacial lake above Val de Bagnes by Perraudin, Charpentier, and Venetz?",
+    "type": "partial",
+    "seed_chunk_id": 205,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 28,
+    "text": "What has been the temperature increase in Nepal over the last decade?",
+    "type": "direct",
+    "seed_chunk_id": 560,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 29,
+    "text": "How does climate change affect tropical cyclones?",
+    "type": "direct",
+    "seed_chunk_id": 163,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 30,
+    "text": "What are the different names for tropical cyclones depending on their location and strength?",
+    "type": "partial",
+    "seed_chunk_id": 163,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 31,
+    "text": "What percentage of small businesses never reopen after a flooding disaster according to FEMA?",
+    "type": "direct",
+    "seed_chunk_id": 157,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 32,
+    "text": "What are some health impacts associated with floods?",
+    "type": "partial",
+    "seed_chunk_id": 157,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 33,
+    "text": "What is one of the biggest threats to global health in the 21st century according to the World Health Organization?",
+    "type": "direct",
+    "seed_chunk_id": 33,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 34,
+    "text": "How does climate change affect crop yields?",
+    "type": "partial",
+    "seed_chunk_id": 33,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 35,
+    "text": "What is a capacitor used for in electronic devices?",
+    "type": "direct",
+    "seed_chunk_id": 465,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 36,
+    "text": "What factors affect the capacitance of a capacitor?",
+    "type": "partial",
+    "seed_chunk_id": 465,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 37,
+    "text": "What percentage of global electricity supply did renewable energy grow to from 2011 to 2021?",
+    "type": "direct",
+    "seed_chunk_id": 363,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 38,
+    "text": "What are some of the obstacles faced in the deployment of renewable energy?",
+    "type": "partial",
+    "seed_chunk_id": 363,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 39,
+    "text": "What is the boiling point of methane at a pressure of one atmosphere?",
+    "type": "direct",
+    "seed_chunk_id": 50,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 40,
+    "text": "How much did fire-impacted areas in the Brazilian Amazon rise in June 2019 compared to June 2018?",
+    "type": "direct",
+    "seed_chunk_id": 607,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 41,
+    "text": "What are the potential long-term consequences of the droughts experienced in the Amazon basin?",
+    "type": "partial",
+    "seed_chunk_id": 607,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  },
+  {
+    "query_id": 42,
+    "text": "What is the purpose of the National Oceanic and Atmospheric Administration's Hazard Mapping System?",
+    "type": "direct",
+    "seed_chunk_id": 186,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "easy"
+  },
+  {
+    "query_id": 43,
+    "text": "How has fire suppression technology changed in advanced nations compared to less developed nations?",
+    "type": "partial",
+    "seed_chunk_id": 186,
+    "is_multi_hop": false,
+    "domain": "climate",
+    "difficulty": "medium"
+  }
+]
