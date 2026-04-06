@@ -12,8 +12,8 @@ Four checks:
 Usage:
     # Via build_corpus.py (automatic)
     # Or standalone:
-    python -m rag_debug_env.corpora.stages.verify --domain software
-    python -m rag_debug_env.corpora.stages.verify --domain all
+    python -m corpora.stages.verify --domain software
+    python -m corpora.stages.verify --domain all
 """
 
 from __future__ import annotations

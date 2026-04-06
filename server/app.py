@@ -64,7 +64,7 @@ def main(host: str = "0.0.0.0", port: int = 8000):
     This function enables running the server without Docker:
         uv run --project . server
         uv run --project . server --port 8001
-        python -m rag_debug_env.server.app
+        python -m server.app
 
     Args:
         host: Host address to bind to (default: "0.0.0.0")
@@ -72,7 +72,7 @@ def main(host: str = "0.0.0.0", port: int = 8000):
 
     For production deployments, consider using uvicorn directly with
     multiple workers:
-        uvicorn rag_debug_env.server.app:app --workers 4
+        uvicorn server.app:app --workers 4
     """
     import uvicorn
 

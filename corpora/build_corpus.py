@@ -11,10 +11,10 @@ Produces for each domain (software, climate, medical):
   corpus_stats.json    — CorpusStats fields for the environment
 
 Usage:
-    python -m rag_debug_env.corpora.build_corpus --domain software
-    python -m rag_debug_env.corpora.build_corpus --domain climate
-    python -m rag_debug_env.corpora.build_corpus --domain medical
-    python -m rag_debug_env.corpora.build_corpus --all
+    python -m corpora.build_corpus --domain software
+    python -m corpora.build_corpus --domain climate
+    python -m corpora.build_corpus --domain medical
+    python -m corpora.build_corpus --all
 """
 
 import argparse

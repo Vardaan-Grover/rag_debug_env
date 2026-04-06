@@ -7,7 +7,7 @@
 """Rag Debug Env Environment."""
 
 from .client import RagDebugEnv
-from .models import RAGDebugAction, RAGDebugObservation
+from models import RAGDebugAction, RAGDebugObservation
 
 __all__ = [
     "RAGDebugAction",

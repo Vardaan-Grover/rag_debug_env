@@ -31,7 +31,7 @@ GRPO is the right fit for this environment because:
     pip install trl>=0.9.0 transformers>=4.45.0 torch peft accelerate
 
     # The environment server must be running:
-    uvicorn rag_debug_env.server.app:app --host 0.0.0.0 --port 8000
+    uvicorn server.app:app --host 0.0.0.0 --port 8000
 """
 
 from __future__ import annotations
@@ -168,8 +168,8 @@ def train(server_url: str = SERVER_URL, task_id: int = TASK_ID) -> None:
     print()
     print("Quick start once TODOs are filled in:")
     print("  1. pip install trl transformers peft accelerate")
-    print("  2. uvicorn rag_debug_env.server.app:app --host 0.0.0.0 --port 8000 &")
-    print("  3. python -m rag_debug_env.baseline.train_grpo --task 1")
+    print("  2. uvicorn server.app:app --host 0.0.0.0 --port 8000 &")
+    print("  3. python -m baseline.train_grpo --task 1")
     print()
     print("Expected training time on a single A100: ~2h for task 1 to reach 80% success rate.")
 

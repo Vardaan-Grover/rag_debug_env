@@ -96,7 +96,7 @@ pip install -e ".[dev]"
 Before running the environment, generate the `S_true` matrices and `R*` ground truth.
 ```bash
 # This will run Stages 1-5 (Document loading -> Chunking -> Query Gen -> Embedding)
-python -m rag_debug_env.corpora.build_corpus
+python -m corpora.build_corpus
 ```
 
 ### 4. Start the Environment Server
@@ -116,7 +116,7 @@ docker build -t rag_debug_env-env:latest -f server/Dockerfile .
 ### 5. Run the Baseline Agent
 Test the environment with our baseline agent that will try to fix pipeline errors:
 ```bash
-python -m rag_debug_env.baseline.eval_agent --task 1 --episodes 3
+python -m baseline.eval_agent --task 1 --episodes 3
 ```
 
 *(You should see the agent attempting to fix faults and interacting with the simulation in sub-milliseconds!)*

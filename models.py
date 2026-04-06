@@ -22,7 +22,7 @@ Two tiers of models live here:
 
 Import convention
 -----------------
-    from rag_debug_env.models import RAGDebugAction, RAGDebugObservation
+    from models import RAGDebugAction, RAGDebugObservation
   from openenv.core.env_server.types import State   # for episode state
 """
 

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import sys
+
 """
 baseline/eval_agent.py
 ----------------------
@@ -9,7 +13,7 @@ capable model before committing to GRPO training.
 
 Usage:
     # Server must be running first:
-    #   uvicorn rag_debug_env.server.app:app --host 0.0.0.0 --port 8000
+    #   uvicorn server.app:app --host 0.0.0.0 --port 8000
 
     python baseline/eval_agent.py --task 1 --episodes 3
     python baseline/eval_agent.py --task all --episodes 2 --verbose
@@ -20,7 +24,6 @@ Requirements:
     pip install openai
 """
 
-from __future__ import annotations
 
 import argparse
 import os
@@ -32,7 +35,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
-from src import RagDebugEnv, RAGDebugAction, RAGDebugObservation
+from client import RagDebugEnv
+from models import RAGDebugAction, RAGDebugObservation
+#  RagDebugEnv, RAGDebugAction, RAGDebugObservation
 
 load_dotenv()
 
@@ -271,7 +276,14 @@ def run_episode(
         if verbose:
             print(f"\n  Reasoning: {decision.reasoning[:200]}")
 
-        step_result = env.step(action)
+        try:
+            step_result = env.step(action)
+        except RuntimeError as e:
+            # OpenEnv can report terminal state from server side even if the
+            # local observation's done flag has not yet been updated.
+            if "Episode is already done" in str(e):
+                break
+            raise
         reward = step_result.reward or 0.0
         total_reward += reward
         obs = step_result.observation
@@ -354,7 +366,8 @@ def main() -> None:
     tasks = [1, 2, 3] if args.task == "all" else [int(args.task)]
     all_results: list[dict] = []
 
-    with RagDebugEnv(base_url=args.server) as env:
+    env = RagDebugEnv(base_url=args.server)
+    with env.sync() as env:
         for task_id in tasks:
             print(f"\n{'='*60}")
             print(f"  Task {task_id}  ({args.episodes} episodes)")

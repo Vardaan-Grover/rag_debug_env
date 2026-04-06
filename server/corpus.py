@@ -42,7 +42,7 @@ def _load_corpus(domain: str) -> Dict:
             f"[RAGDebugEnv] WARNING: Real corpus unavailable for domain '{domain}'.\n"
             f"  Reason : {exc}\n"
             + (f"  Missing : {', '.join(missing)}\n" if missing else "")
-            + f"  Fix    : run `python -m rag_debug_env.corpora.build_corpus --domain {domain}`\n"
+            + f"  Fix    : run `python -m corpora.build_corpus --domain {domain}`\n"
             f"  Action : falling back to SYNTHETIC corpus — do NOT use for training.\n"
             f"{'!'*60}\n"
         )

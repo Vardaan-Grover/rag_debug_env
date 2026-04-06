@@ -198,9 +198,9 @@ pip install -e .
 pytest tests/ -v
 
 # Build corpus (requires OPENAI_API_KEY)
-python -m rag_debug_env.corpora.build_corpus --domain software
-python -m rag_debug_env.corpora.build_corpus --domain climate
-python -m rag_debug_env.corpora.build_corpus --domain medical
+python -m corpora.build_corpus --domain software
+python -m corpora.build_corpus --domain climate
+python -m corpora.build_corpus --domain medical
 
 # Run server locally
 uvicorn rag_debug_env.server.app:app --host 0.0.0.0 --port 8000
