@@ -43,7 +43,8 @@ from __future__ import annotations
 # from trl import GRPOTrainer, GRPOConfig
 # from peft import LoraConfig, get_peft_model
 
-from src import RagDebugEnv, RAGDebugAction, RAGDebugObservation
+from client import RAGDebugEnv
+from models import RAGDebugAction, RAGDebugObservation
 
 # ---------------------------------------------------------------------------
 # Model and training config
@@ -95,7 +96,7 @@ def format_prompt(obs: RAGDebugObservation) -> str:
 # Rollout collection
 # ---------------------------------------------------------------------------
 
-def collect_rollout(env: RagDebugEnv, model, tokenizer, task_id: int) -> list[dict]:
+def collect_rollout(env: RAGDebugEnv, model, tokenizer, task_id: int) -> list[dict]:
     """
     Run one episode and collect (prompt, action_text, reward) triples.
 

@@ -28,10 +28,11 @@ Import convention
 
 from __future__ import annotations
 
+import json
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ── OpenEnv base types ────────────────────────────────────────────────────────
 # These are the two types the framework requires us to subclass.
@@ -151,6 +152,27 @@ class RAGDebugAction(Action):
         default_factory=dict,
         description="Arguments for the chosen action_type.",
     )
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def coerce_params_dict(cls, value: Any) -> Dict[str, Any]:
+        """Accept dicts and JSON-stringified dicts from the web UI."""
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return {}
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("params must be a dictionary or valid JSON object string") from exc
+            if not isinstance(parsed, dict):
+                raise ValueError("params JSON must decode to an object")
+            return parsed
+        raise TypeError("params must be a dictionary or JSON object string")
 
     def __str__(self) -> str:
         if self.params:

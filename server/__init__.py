@@ -6,6 +6,6 @@
 
 """Rag Debug Env environment server components."""
 
-from .rag_debug_env_environment import RagDebugEnvironment
+from server.rag_debug_env_environment import RagDebugEnvironment
 
 __all__ = ["RagDebugEnvironment"]

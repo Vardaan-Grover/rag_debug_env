@@ -25,15 +25,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.corpora.stages.s1_load    import load_documents
-from src.corpora.stages.s2_chunk   import chunk_documents
-from src.corpora.stages.s3_queries import generate_queries
-from src.corpora.stages.s4_multihop import build_multihop_queries
-from src.corpora.stages.s5_embed   import embed_and_compute_similarity
-from src.corpora.stages.s6_grade   import label_ground_truth
-from src.corpora.stages.verify import verify_corpus
+from corpora.stages.s1_load import load_documents
+from corpora.stages.s2_chunk import chunk_documents
+from corpora.stages.s3_queries import generate_queries
+from corpora.stages.s4_multihop import build_multihop_queries
+from corpora.stages.s5_embed import embed_and_compute_similarity
+from corpora.stages.s6_grade import label_ground_truth
+from corpora.stages.verify import verify_corpus
 
-from src.models import CorpusStats, Domain
+from models import CorpusStats, Domain
 
 DOMAINS = ["software", "climate", "medical"]
 

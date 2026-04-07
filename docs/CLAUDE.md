@@ -1,226 +1,106 @@
-# RAGDebugEnv — Claude Code Context
+# RAGDebugEnv Reference Context
 
-## What This Project Is
+This file is a fast orientation guide for contributors and coding agents working in this repository.
 
-An OpenEnv-compliant RL environment for training agents to debug broken RAG (Retrieval-Augmented Generation) pipelines. Agents observe retrieval quality metrics and take corrective actions (adjust chunk size, similarity threshold, top-k, swap embedding model, etc.) to restore pipeline performance.
+## What This Repository Implements
 
-Submitted to the **AgentBeats OpenEnv Hackathon** hosted by MetaAI, HuggingFace, and Scaler School of Technology.
+A simulated OpenEnv environment for debugging RAG retrieval pipelines by RL-style interaction.
 
-**The core value proposition:** Train agents in simulation, deploy against real production RAG pipelines. The observation schema is identical whether the backend is simulated (NumPy matrices) or real (Pinecone/Weaviate/Chroma).
+- Server app: `server/app.py`
+- Environment logic: `server/rag_debug_env_environment.py`
+- Action/observation models: `models.py`
+- Client: `client.py`
+- Corpus build pipeline: `corpora/build_corpus.py` and `corpora/stages/*`
 
----
+## Project Layout (Current)
 
-## Current Build Status
-
-See `docs/BUILD_STATUS.md` for full detail. Summary:
-
-| Phase | Status | Files |
-|---|---|---|
-| Phase 0 — Skeleton | ✅ Complete | `pyproject.toml`, `openenv.yaml`, `Dockerfile` |
-| Phase 1 — Models | ✅ Complete | `models.py`, `tests/test_models.py` |
-| Phase 2a — Server + Environment | ✅ Complete | `server/rag_debug_env_environment.py`, `server/app.py` |
-| Phase 2b — Client | ✅ Complete | `client.py`, `__init__.py` |
-| Phase 3 — Corpus Build (Stages 1-5) | ✅ Complete | `corpora/stages/s1_load.py` ... `corpora/stages/s5_embed.py` |
-| Phase 3 — Corpus Build (Stage 6) | ⏳ Pending | `corpora/stages/s6_grade.py` |
-| Phase 4 — Tests | ⏳ Not started | `tests/test_environment.py`, `tests/test_faults.py` |
-| Phase 5 — Baseline Script | ⏳ Not started | `baseline/run_baseline.py` |
-| Phase 6 — HF Deployment | ⏳ Not started | |
-
----
-
-## Project File Structure
-
-```
+```text
 rag_debug_env/
-├── CLAUDE.md                      ← you are here
-├── docs/
-│   ├── BUILD_STATUS.md            ← detailed phase-by-phase status
-│   ├── ARCHITECTURE.md            ← system design and key decisions
-│   ├── MODELS_REFERENCE.md        ← every model field explained precisely
-│   └── CORPUS_BUILD_PLAN.md       ← Stage 1-6 plan for build_corpus.py
-├── models.py                      ← ALL Pydantic models (Tier 1 + Tier 2)
-├── client.py                      ← RAGDebugEnv(HTTPEnvClient) 
-├── __init__.py                    ← public surface: RAGDebugEnv, RAGDebugAction, RAGDebugObservation
-├── server/
-│   ├── __init__.py
-│   ├── rag_debug_env_environment.py ← RAGDebugEnvironment(Environment) — core logic
-│   └── app.py                     ← FastAPI app via create_env_app()
-├── corpora/
-│   ├── __init__.py
-│   ├── build_corpus.py            ← orchestrator for Stage 1-5 (Stage 6 optional/pending)
-│   └── stages/
-│       ├── __init__.py
-│       ├── s1_load.py             ← ✅ Stage 1: document loading (working)
-│       ├── s2_chunk.py            ← ✅ Stage 2: chunking with tiktoken
-│       ├── s3_queries.py          ← ✅ Stage 3: synthetic query generation via GPT-4o-mini
-│       ├── s4_multihop.py         ← ✅ Stage 4: multi-hop query construction (medical)
-│       ├── s5_embed.py            ← ✅ Stage 5: embedding + S_true matrix computation
-│       ├── s6_grade.py            ← ⏳ Stage 6: cross-encoder R* labeling
-│       └── verify.py              ← ⏳ verification / sanity checks
-├── tests/
-│   ├── __init__.py
-│   ├── test_models.py             ← ✅ 35+ tests, all passing
-│   ├── test_environment.py        ← written, not yet run against real env
-│   └── test_faults.py             ← written, not yet run against real env
-├── baseline/
-│   └── run_baseline.py            ← ⏳ NOT YET WRITTEN
-├── openenv.yaml                   ← OpenEnv manifest
-├── pyproject.toml                 ← dependencies
-└── Dockerfile                     ← container definition
+  baseline/
+    eval_agent.py
+    train_grpo.py
+  corpora/
+    build_corpus.py
+    software/
+    climate/
+    medical/
+    stages/
+      s1_load.py
+      s2_chunk.py
+      s3_queries.py
+      s4_multihop.py
+      s5_embed.py
+      s6_grade.py
+      verify.py
+      playground.py
+  docs/
+    ARCHITECTURE.md
+    BUILD_STATUS.md
+    CLAUDE.md
+    CORPUS_BUILD_PLAN.md
+    MODELS_REFERENCE.md
+  server/
+    app.py
+    constants.py
+    corpus.py
+    fault_math.py
+    rag_debug_env_environment.py
+  client.py
+  models.py
+  pyproject.toml
+  openenv.yaml
+  Dockerfile
 ```
 
----
+## Runtime Facts To Keep In Mind
 
-## OpenEnv Spec — Critical Facts
+- All tasks currently use `max_steps=10`
+- `PipelineConfig.similarity_threshold` default is `0.3` (not `0.7`)
+- Task 3 starts with `embedding_model=legal` intentionally
+- Task success is based on task score thresholds in `_check_success`, not raw coverage alone
+- Synthetic corpus fallback exists in `server/corpus.py` for missing artifacts
 
-**Package name:** `openenv-core` (install with `pip install openenv-core`)
+## Corpus Build Facts
 
-**Correct import paths (confirmed from official docs):**
-```python
-from openenv.core.env_server.types import Action, Observation, State
-from openenv.core.env_server.interfaces import Environment
-from openenv.core.env_server import create_env_app
-from openenv.core.http_env_client import HTTPEnvClient
-from openenv.core.types import StepResult
-```
+`corpora/build_corpus.py` runs all six stages and calls `verify_corpus`.
 
-**Our classes:**
-- `RAGDebugAction(Action)` — inherits from OpenEnv Action ✅
-- `RAGDebugObservation(Observation)` — inherits from OpenEnv Observation ✅
-- `RAGDebugEnvironment(Environment)` — server-side logic ✅
-- `RAGDebugEnv(HTTPEnvClient[RAGDebugAction, RAGDebugObservation])` — client ✅
+Outputs per domain:
 
-**App creation pattern:**
-```python
-app = create_env_app(env, RAGDebugAction, RAGDebugObservation)
-```
+- `docs.json`
+- `chunks.json`
+- `queries.json`
+- `ground_truth.json`
+- `S_true_general.npy`
+- `S_true_medical.npy`
+- `S_true_legal.npy`
+- `S_true_code.npy`
+- `corpus_stats.json`
 
-**State:** Use `openenv.core.env_server.types.State` directly for `episode_id` and `step_count`. Domain-specific state lives in our `InternalState(BaseModel)`.
+## Baseline Script Status
 
-**Required file structure per OpenEnv spec:**
-```
-env_name/
-├── __init__.py        # exports Action, Observation, EnvClient
-├── models.py          # Action + Observation subclasses
-├── client.py          # HTTPEnvClient subclass
-├── openenv.yaml       # manifest
-├── pyproject.toml
-└── server/
-    ├── app.py         # create_env_app(...)
-    ├── environment.py # Environment subclass
-    ├── requirements.txt
-    └── Dockerfile
-```
+- `baseline/eval_agent.py` is actively usable.
+- `baseline/train_grpo.py` is a structured stub with TODOs.
 
----
-
-## The Three Tasks
-
-| Task | Domain | Faults | Max Steps | Success Threshold |
-|---|---|---|---|---|
-| 1 — SingleFaultFix | Software (Python docs) | 1 | 10 | mean_coverage > 0.80 |
-| 2 — CompoundFaultFix | Climate (Wikipedia) | 2 interacting | 15 | mean_coverage > 0.75 |
-| 3 — MultiHopDebug | Medical (textbooks) | 3 incl. wrong embedding | 20 | mean_coverage > 0.70 |
-
----
-
-## The Simulation Architecture — Most Important Concept
-
-**The environment never runs a real RAG pipeline during episodes.** All expensive work happens once in `build_corpus.py`. During episodes, everything is pure NumPy.
-
-```
-build_corpus.py (one-time):
-  Documents → Chunks → Embed (4 models) → S_true_[model].npy
-  Chunks + Queries → Cross-encoder → ground_truth.json
-
-Episode runtime (milliseconds):
-  S_faulted = apply_fault_math(S_true_general)
-  R_agent = threshold_filter(top_k(S_faulted, config))
-  coverage = |R_agent ∩ R*| / |R*|
-  reward = delta(coverage) × weights
-```
-
-**S_true matrices:** shape (n_queries, n_chunks), one per embedding model. Stored as `.npy`.
-
-**R* (ground truth):** `{query_id: [relevant_chunk_ids]}`. Computed once by cross-encoder. Model-independent — this is what the grader trusts.
-
-**The key insight:** S_true captures what each embedding model *perceives* as similar. R* captures what is *actually* relevant. The gap between them IS the learning signal for the wrong_embedding_model fault.
-
----
-
-## Corpus Build — Current State
-
-Stages 1-5 are implemented and producing cached artifacts for all target domains
-(`software`, `climate`, `medical`):
-
-- `docs.json`, `chunks.json`, `queries.json`
-- `S_true_general.npy`, `S_true_medical.npy`, `S_true_legal.npy`, `S_true_code.npy`
-
-Stage 6 (`s6_grade.py`) and `verify.py` are the remaining corpus-build pieces.
-
----
-
-## Key Design Decisions (Don't Change These)
-
-1. **Procedural fault generation, not a fixed dataset.** `reset()` samples faults randomly each episode. Infinite variety, no memorization.
-
-2. **Four S_true matrices, one per embedding model.** Swapping embedding model during episode = swapping which matrix is used. The `WRONG_EMBEDDING_MODEL` fault scrambles scores for domain-specific queries on the GENERAL matrix.
-
-3. **Cross-encoder for R*, bi-encoder for S_true.** Cross-encoder is slow but accurate and model-agnostic. Bi-encoder is fast but model-dependent. Never use S_true to define R* — that would make the grader circular.
-
-4. **Delta-based rewards.** Reward = Δcoverage × 0.6 + Δprecision × 0.3 − step_cost + terminal_bonus. Agent gets signal at every improvement, not just episode end.
-
-5. **`InternalState` never sent to agent.** Agent must infer faults from metrics alone. This IS the task.
-
-6. **Synthetic corpus fallback.** `RAGDebugEnvironment` generates synthetic NumPy data if corpus files don't exist. Allows tests to run before `build_corpus.py` completes.
-
----
-
-## Environment Variables Required
+## Commands
 
 ```bash
-OPENAI_API_KEY=sk-...        # Required for corpus build (Stages 3, 4)
-CORPORA_DIR=corpora          # Optional, defaults to this path
-ENABLE_WEB_INTERFACE=true    # Optional, enables OpenEnv web UI at /web
-HF_TOKEN=hf_...              # Optional, avoids HF rate limits
-```
-
----
-
-## Running Things
-
-```bash
-# Install
-pip install openenv-core
-pip install -e .
-
-# Run tests (work without corpus files — uses synthetic fallback)
-pytest tests/ -v
-
-# Build corpus (requires OPENAI_API_KEY)
+# Build corpus for one domain
 python -m corpora.build_corpus --domain software
-python -m corpora.build_corpus --domain climate
-python -m corpora.build_corpus --domain medical
 
-# Run server locally
-uvicorn rag_debug_env.server.app:app --host 0.0.0.0 --port 8000
+# Build all domains
+python -m corpora.build_corpus --domain all
 
-# Docker
-docker build -t rag_debug_env .
-docker run -p 8000:8000 rag_debug_env
+# Run server
+uvicorn server.app:app --host 0.0.0.0 --port 8000
 
-# Validate OpenEnv compliance
+# Run baseline evaluator
+python baseline/eval_agent.py --task 1 --episodes 3
+
+# Validate OpenEnv integration
 openenv validate
 ```
 
----
+## Important Caveats
 
-## What To Work On Next
-
-1. **Write `s6_grade.py`** — cross-encoder R* labeling
-2. **Write `verify.py`** — corpus sanity checks and clean-pipeline coverage checks
-3. **Run full corpus verification** for `software`, `climate`, `medical`
-4. **Validate server environment against real corpus artifacts** (replace synthetic fallback path in tests)
-5. **Write `baseline/run_baseline.py`** — GPT-4o agent with structured outputs
-
-See `docs/CORPUS_BUILD_PLAN.md` for detailed Stage 2-6 specs.
+- `inference.py` is currently a template for a different environment (`MyEnvV4*`) and should not be treated as the production inference path for this repo.
+- `README.md` contains outdated values relative to current constants and should be treated cautiously until it is updated.

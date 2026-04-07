@@ -1,175 +1,127 @@
 # Architecture
 
-## System Overview
+## Runtime Topology
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Training Loop                        │
-│  Agent observes → picks action → receives reward        │
-└─────────────────┬───────────────────────────────────────┘
-                  │ RAGDebugAction
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│              RAGDebugEnv (client.py)                    │
-│         HTTPEnvClient — WebSocket to server             │
-└─────────────────┬───────────────────────────────────────┘
-                  │ WebSocket /ws
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│              FastAPI Server (server/app.py)             │
-│         create_env_app(env, Action, Observation)        │
-└─────────────────┬───────────────────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────────────────┐
-│ RAGDebugEnvironment (server/rag_debug_env_environment.py) │
-│                                                         │
-│  reset() → load corpus → sample faults → S_faulted      │
-│  step()  → apply action → re-simulate → compute reward  │
-│  state   → OpenEnv State(episode_id, step_count)        │
-│                                                         │
-│  Internal:                                              │
-│    S_true_[model].npy  ← loaded from disk at reset()    │
-│    S_faulted           ← S_true + fault math            │
-│    ground_truth.json   ← R* for grading                 │
-│    InternalState       ← faults, history (not sent out) │
-└─────────────────────────────────────────────────────────┘
+```text
+Agent / baseline script
+  -> client.RAGDebugEnv (openenv.core.EnvClient)
+  -> WebSocket/HTTP to FastAPI app (server/app.py)
+  -> RAGDebugEnvironment (server/rag_debug_env_environment.py)
+  -> Corpus artifacts (corpora/<domain>/*)
 ```
 
----
+Server construction uses `openenv.core.env_server.http_server.create_app`:
 
-## Simulation Strategy — Why It's Fast
+- Environment class: `RagDebugEnvironment` aliasing `RAGDebugEnvironment`
+- Action schema: `RAGDebugAction`
+- Observation schema: `RAGDebugObservation`
+- `env_name="rag_debug_env"`
+- `max_concurrent_envs=1` in `server/app.py`
 
-Real RAG pipelines are too slow for RL training (5-10 seconds per step). The environment simulates pipeline behavior mathematically instead.
+## Core Simulation Contract
 
-**Offline (build_corpus.py — runs once):**
-1. Load documents for each domain
-2. Chunk with canonical config (chunk_size=512, overlap=50)
-3. Embed all chunks with 4 embedding models → `S_true_[model].npy`
-4. Generate synthetic queries from chunks via GPT-4o-mini
-5. Run cross-encoder on all (query, chunk) pairs → `ground_truth.json` (R*)
+The environment does not call a live vector database during episodes.
 
-**Online (episodes — milliseconds per step):**
-1. Load `.npy` files into memory at `reset()`
-2. Apply fault math to S_true → S_faulted
-3. Simulate retrieval: `threshold_filter(argsort(S_faulted)[-top_k:])`
-4. Grade: `coverage = |R_agent ∩ R*| / |R*|`
-5. Reward: `Δcoverage × 0.6 + Δprecision × 0.3 − step_cost`
+Episode-time retrieval is simulated from precomputed matrices:
 
-Result: ~1ms per step, enabling millions of training episodes.
+- `S_true_{general,medical,legal,code}.npy`: query-chunk cosine matrices
+- `ground_truth.json`: relevant chunk IDs (`R*`) per query
 
----
+At reset:
 
-## The Two Matrices
+1. Load one domain corpus (`software`, `climate`, `medical`)
+2. Sample episode queries (5 total per task)
+3. Slice full `S_true` matrices down to episode query rows
+4. Sample injected faults
+5. Build `S_faulted` via `server/fault_math.py`
+6. Return initial `RAGDebugObservation`
 
-### S_true (bi-encoder similarity)
-- Shape: (n_queries, n_chunks), dtype float32
-- Content: `cosine_similarity(query_embedding, chunk_embedding)` 
-- One file per embedding model: `S_true_general.npy`, `S_true_medical.npy`, etc.
-- **What it represents:** how the embedding model perceives similarity
-- **Used for:** simulating retrieval behavior under different configs
+At step:
 
-### R* (cross-encoder ground truth)
-- Shape: `{query_id: [chunk_id, chunk_id, ...]}`
-- Content: chunk IDs that are genuinely relevant, determined by cross-encoder
-- One file per domain: `ground_truth.json`
-- **What it represents:** actual relevance, independent of any embedding model
-- **Used for:** grading coverage, computing reward
+1. Apply action to config/model/rewrite overlay
+2. Recompute `S_faulted` when required
+3. Simulate retrieval (`top_k` then threshold)
+4. Compute per-query coverage/precision and aggregate metrics
+5. Compute dense reward (or terminal submit reward)
 
-**Critical distinction:** Never define R* using S_true. That would make the grader circular — you'd be grading how well the pipeline satisfies its own (potentially flawed) perception of relevance, not actual relevance.
+## Task Configuration
 
----
+Values below are sourced from `server/constants.py` and `server/rag_debug_env_environment.py`.
 
-## Fault Simulation Math
+### Shared limits
 
-Each fault is a mathematical transformation of S_true → S_faulted.
+- Episode queries: 5 (`_N_EPISODE_QUERIES` for all tasks)
+- Max steps: 10 (`_MAX_STEPS`)
 
-| Fault | Transformation |
-|---|---|
-| CHUNK_TOO_LARGE | `scipy.ndimage.uniform_filter1d(S, size=scale, axis=1)` — averages neighboring scores, diluting relevance |
-| CHUNK_TOO_SMALL | `S + normal(0, 0.15)` — noise causes fine-grained chunks to be retrieved inconsistently |
-| THRESHOLD_TOO_LOW | `S + normal(0, 0.20)` — noise elevates irrelevant chunks above threshold |
-| THRESHOLD_TOO_HIGH | `S × 0.55` — deflates all scores, almost nothing passes the high threshold |
-| TOP_K_TOO_SMALL | `0.5 + (S - 0.5) × 0.3` — compresses score range, making ranking differences tiny |
-| DUPLICATE_FLOODING | `S[:, dupe_ids] += 0.35` — artificially boosts random chunk subset |
-| CONTEXT_OVERFLOW | `S[:, cutoff:] = 0.0` — zeroes out high-index chunks (simulates truncation) |
-| NO_RERANKING | `S + normal(0, 0.10)` — moderate noise without second-pass cleanup |
-| WRONG_EMBEDDING_MODEL | `permute_rows(S[domain_queries])` — scrambles scores for domain-specific queries |
+### Task 1 (software)
 
-**Compound faults:** Applied sequentially. Each fault's output becomes the next fault's input. The interactions produce emergent degradation — e.g. `CHUNK_TOO_LARGE` + `NO_RERANKING` compounds because large chunks produce noisy initial retrieval AND there's no second pass to clean it.
+- Domain: `software`
+- Faults sampled from:
+  - `[chunk_too_large, no_reranking]`
+  - `[threshold_too_high]`
+  - `[top_k_too_small]`
+  - `[chunk_too_large]`
+- Success check on submit: `task_score >= 0.75`
 
-**Action effects on faults:**
-- `SWAP_EMBEDDING_MODEL(MEDICAL)` → switch to `S_true_medical`, re-apply non-model faults
-- `TOGGLE_RERANKING(True)` → if `NO_RERANKING` was a fault, re-apply faults minus that one
-- Config actions (`ADJUST_THRESHOLD`, etc.) → change `self._config`, re-simulate retrieval on same `S_faulted`
+### Task 2 (climate)
 
----
+- Domain: `climate`
+- Faults sampled from:
+  - `[threshold_too_low, duplicate_flooding]`
+  - `[top_k_too_small, context_overflow]`
+  - `[duplicate_flooding]`
+  - `[context_overflow]`
+- Success check on submit: `task_score >= 0.75`
 
-## Reward Function
+### Task 3 (medical)
 
-Dense reward across the full trajectory:
+- Domain: `medical`
+- Fixed fault set:
+  - `wrong_embedding_model`
+  - `chunk_too_large`
+  - `threshold_too_high`
+- Initial active model is `legal` (intentional mismatch)
+- Query sampling forces up to 2 multi-hop queries per episode
+- Success check on submit:
+  - `task_score >= 0.70`
+  - `multi_hop_coverage > 0.60`
 
-```python
-coverage_delta   = Δmean_coverage × 0.6
-precision_delta  = Δmean_precision × 0.3
-step_cost        = -0.02  # every step
-redundancy       = -0.10  # same action_type twice in a row
-empty_retrieval  = -0.15 × new_empty_retrievals
-terminal_bonus   = +2.0   # on successful SUBMIT
-premature_submit = -0.50  # SUBMIT before threshold
-```
+## Reward and Scoring
 
-**Why delta-based:** Agent gets signal at every improvement, not just episode end. Partial fixes are acknowledged. This enables learning in early training when the agent rarely completes tasks successfully.
+Dense step reward (`_compute_reward`):
 
-**Why asymmetric:** Missing an attack (empty retrieval) costs more than over-retrieving (precision loss). This mirrors real-world priorities — a pipeline that retrieves nothing is worse than one that retrieves some noise.
+- `coverage_delta = (new.mean_coverage - prev.mean_coverage) * 0.6`
+- `precision_delta = (new.mean_precision - prev.mean_precision) * 0.3`
+- `step_cost = -0.02`
+- `redundancy_penalty = -0.10` for same action type twice in a row
+- `empty_retrieval_penalty = -0.15 * new_empty_retrievals`
 
----
+Submit reward override (`_apply_action`):
 
-## Real-World Deployment (Sim-to-Real)
+- `+2.0` if success condition is met
+- `-0.5` otherwise
 
-After training, the same agent can be pointed at a real pipeline via `RealPipelineBackend`:
+Task score (`_compute_task_score`):
 
-```
-User's vector store (Pinecone/Weaviate/Chroma)
-  → proxy metrics computed from real retrieval
-  → same RAGDebugObservation schema
-  → trained agent applies learned policy
-  → recommends action sequence
-  → user validates
-```
+- Task 1/2: `0.60*coverage + 0.25*precision + 0.15*efficiency`
+- Task 3: `0.55*coverage + 0.25*precision + 0.20*multi_hop_coverage`
 
-The agent doesn't know whether it's talking to simulation or reality — it just sees the observation schema it trained on.
+## Fault Math (Implemented)
 
-**Key challenge:** Real pipelines need proxy metrics instead of true coverage (no ground truth). Observable proxies:
-- Score distribution statistics (mean, variance, percentiles)
-- Empty retrieval rate
-- Score drop-off from rank 1 to rank K
-- Retrieved chunk length distribution
+All transformations are in `server/fault_math.py`.
 
-`RealPipelineBackend` is stubbed as an abstract class in `server/rag_debug_env_environment.py` to signal this future extension.
+- `CHUNK_TOO_LARGE`: 1D uniform filter along chunk axis; severity scales with `chunk_size`
+- `CHUNK_TOO_SMALL`: gaussian noise scaled by small chunk size, mitigated by overlap
+- `THRESHOLD_TOO_LOW`: additive gaussian noise
+- `THRESHOLD_TOO_HIGH`: multiplicative score deflation (`* 0.55`)
+- `TOP_K_TOO_SMALL`: score compression toward 0.5; less severe if reranking enabled
+- `DUPLICATE_FLOODING`: boosts random duplicate columns; reduced if reranking enabled
+- `CONTEXT_OVERFLOW`: zeroes tail columns based on `context_window_limit`
+- `NO_RERANKING`: additive noise only when reranking is off
+- `WRONG_EMBEDDING_MODEL`: implicit by selecting wrong matrix (not a direct transform)
 
----
+## Determinism and Fallbacks
 
-## Three Task Designs
-
-### Task 1 — SingleFaultFix (Easy)
-- One fault, uniform sampling from 9 fault types
-- Software domain (Python docs + HF docs) — clean, unambiguous vocabulary
-- 3 queries, max 10 steps
-- Designed to be solvable by any reasonably capable LLM baseline
-
-### Task 2 — CompoundFaultFix (Medium)
-- Two interacting faults from curated pairs:
-  - `(CHUNK_TOO_LARGE, NO_RERANKING)`
-  - `(THRESHOLD_TOO_LOW, DUPLICATE_FLOODING)`
-  - `(TOP_K_TOO_SMALL, CONTEXT_OVERFLOW)`
-- Climate domain — cross-disciplinary vocabulary, more ambiguity
-- 5 queries, max 15 steps
-- Key mechanic: fixing fault A raises coverage from 0.2→0.5; only then does fault B become the bottleneck
-
-### Task 3 — MultiHopDebug (Hard)
-- Three faults: `WRONG_EMBEDDING_MODEL` + `CHUNK_TOO_LARGE` + `THRESHOLD_TOO_LOW`
-- Medical domain — heavy domain-specific terminology (Harrison's, Robbins)
-- 5 queries, 2 of which are multi-hop (require 2 chunks each)
-- Key mechanic: config fixes alone plateau at ~0.50 coverage; only swapping to MEDICAL embedding unlocks further improvement
-- `multi_hop_coverage` tracked separately in QualityMetrics and scored in grade()
+- Noise arrays and duplicate indices are sampled once at reset and reused during recomputation for deterministic intra-episode behavior.
+- If required corpus files are missing, `server/corpus.py` falls back to synthetic data and emits warnings.
+- Synthetic fallback is for smoke testing only, not for real training/evaluation.

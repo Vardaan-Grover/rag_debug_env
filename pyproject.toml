@@ -17,6 +17,8 @@ dependencies = [
     # Core OpenEnv runtime (provides FastAPI server + HTTP client types)
     "openenv-core[core]>=0.2.2",
     "python-dotenv>=1.0.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
 ]
 
 [project.optional-dependencies]
@@ -34,4 +36,4 @@ server = "server.app:main"
 include-package-data = true
 # Since everything is in the root, we package our top-level modules
 py-modules = ["client", "models", "eval_embedding_models"]
-packages = ["server", "corpora", "baseline"]
+packages = ["server", "corpora", "outputs"]

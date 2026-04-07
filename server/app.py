@@ -35,12 +35,8 @@ except Exception as e:  # pragma: no cover
         "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
     ) from e
 
-try:
-    from ..models import RAGDebugAction, RAGDebugObservation
-    from .rag_debug_env_environment import RagDebugEnvironment
-except (ImportError, ModuleNotFoundError):
-    from models import RAGDebugAction, RAGDebugObservation
-    from server.rag_debug_env_environment import RagDebugEnvironment
+from models import RAGDebugAction, RAGDebugObservation
+from server.rag_debug_env_environment import RagDebugEnvironment
 
 
 # Create the app with web interface and README integration
@@ -53,7 +49,7 @@ app = create_app(
 )
 
 
-def main(host: str = "0.0.0.0", port: int = 8000):
+def main(host: str | None = None, port: int | None = None):
     """
     Entry point for direct execution via uv run or python -m.
 
@@ -63,22 +59,27 @@ def main(host: str = "0.0.0.0", port: int = 8000):
         python -m server.app
 
     Args:
-        host: Host address to bind to (default: "0.0.0.0")
-        port: Port number to listen on (default: 8000)
+        host: Optional host address. If omitted, parsed from CLI args.
+        port: Optional port number. If omitted, parsed from CLI args.
 
     For production deployments, consider using uvicorn directly with
     multiple workers:
         uvicorn server.app:app --workers 4
     """
+    if host is None or port is None:
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--host", type=str, default="0.0.0.0")
+        parser.add_argument("--port", type=int, default=8000)
+        args = parser.parse_args()
+        host = args.host if host is None else host
+        port = args.port if port is None else port
+
     import uvicorn
 
     uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
-    main(port=args.port)
+    main()

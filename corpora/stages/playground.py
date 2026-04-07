@@ -2,12 +2,12 @@ from pathlib import Path
 
 import numpy as np
 
-from src.corpora.stages.s1_load import load_documents
-from src.corpora.stages.s2_chunk import chunk_documents
-from src.corpora.stages.s3_queries import generate_queries
-from src.corpora.stages.s4_multihop import build_multihop_queries
-from src.corpora.stages.s5_embed import embed_and_compute_similarity
-from src.corpora.stages.s6_grade import grade_domain
+from corpora.stages.s1_load import load_documents
+from corpora.stages.s2_chunk import chunk_documents
+from corpora.stages.s3_queries import generate_queries
+from corpora.stages.s4_multihop import build_multihop_queries
+from corpora.stages.s5_embed import embed_and_compute_similarity
+from corpora.stages.s6_grade import grade_domain
 
 for domain in ["software", "climate", "medical"]:
     print(f"\n{'='*50}")

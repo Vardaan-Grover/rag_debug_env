@@ -1,6 +1,5 @@
 openenv[core]>=0.2.0
 fastapi>=0.115.0
 uvicorn>=0.24.0
-
-
-
+numpy>=1.26.0
+scipy>=1.11.0

@@ -24,8 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
-from src.models import FaultType
-from src.server.fault_math import apply_faults, make_noise
+from models import FaultType
+from server.fault_math import apply_faults, make_noise
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -35,9 +35,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
-from client import RagDebugEnv
+from client import RAGDebugEnv
 from models import RAGDebugAction, RAGDebugObservation
-#  RagDebugEnv, RAGDebugAction, RAGDebugObservation
+#  RAGDebugEnv, RAGDebugAction, RAGDebugObservation
 
 load_dotenv()
 
@@ -221,7 +221,7 @@ def _decision_to_action(decision: AgentDecision) -> RAGDebugAction:
 
 def run_episode(
     client: OpenAI,
-    env: RagDebugEnv,
+    env: RAGDebugEnv,
     task_id: int,
     seed: Optional[int],
     episode_num: int,
@@ -366,7 +366,7 @@ def main() -> None:
     tasks = [1, 2, 3] if args.task == "all" else [int(args.task)]
     all_results: list[dict] = []
 
-    env = RagDebugEnv(base_url=args.server)
+    env = RAGDebugEnv(base_url=args.server)
     with env.sync() as env:
         for task_id in tasks:
             print(f"\n{'='*60}")

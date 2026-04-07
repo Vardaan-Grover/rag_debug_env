@@ -1,114 +1,68 @@
 # Build Status
 
-## Phase 0 — Project Skeleton ✅
+Last synchronized: 2026-04-08
 
-All files created, package installable.
+## Current Snapshot
 
-```bash
-pip install -e .  # works
-```
+The project is runnable and OpenEnv-compatible with an implemented simulation environment, generated corpus artifacts, and a baseline evaluation agent.
 
-Files: `pyproject.toml`, `openenv.yaml`, `Dockerfile`, `server/requirements.txt`, all `__init__.py` files.
+## Core Environment
 
----
+- Packaging and manifest are present: `pyproject.toml`, `openenv.yaml`, `Dockerfile`
+- OpenEnv app wiring is implemented in `server/app.py` via `create_app(...)`
+- Environment logic is implemented in `server/rag_debug_env_environment.py`
+- Action/observation/internal models are implemented in `models.py`
+- Client is implemented in `client.py` (`RAGDebugEnv` over `openenv.core.EnvClient`)
 
-## Phase 1 — Pydantic Models ✅
+## Corpus Pipeline
 
-All models written and tested. 35+ tests passing.
+All six stages are implemented and wired by `corpora/build_corpus.py`:
 
-```bash
-pytest tests/test_models.py -v  # all pass (requires openenv-core installed)
-```
+1. `s1_load.py` document loading
+2. `s2_chunk.py` token chunking
+3. `s3_queries.py` query generation + CE filtering
+4. `s4_multihop.py` medical multi-hop construction
+5. `s5_embed.py` `S_true_*.npy` matrix generation
+6. `s6_grade.py` cross-encoder R* labeling
 
-**Tier 1 (OpenEnv interface):**
-- `RAGDebugAction(Action)` — inherits from `openenv.core.env_server.types.Action`
-- `RAGDebugObservation(Observation)` — inherits from `openenv.core.env_server.types.Observation`
+Verification logic is implemented in `corpora/stages/verify.py` and called at the end of `build_corpus.py`.
 
-**Tier 2 (internal):**
-- `PipelineConfig` — 7 fields, all validated with bounds
-- `QueryResult` — per-query retrieval output including coverage_score
-- `QualityMetrics` — aggregate metrics including multi_hop_coverage
-- `CorpusStats` — static corpus metadata
-- `Reward` — scalar + named component breakdown
-- `FaultConfig` — single fault parameters (never sent to agent)
-- `InternalState` — full server-side state including injected faults
-- `EpisodeResult` — post-episode grade
+## Corpus Artifacts Present
 
-**Key constraint:** `chunk_overlap < chunk_size` enforced by `model_validator`.
+Current artifacts on disk under `corpora/`:
 
----
+- `software`: 50 docs, 271 chunks, 48 queries, 0 multi-hop
+- `climate`: 50 docs, 612 chunks, 44 queries, 0 multi-hop
+- `medical`: 18 docs, 359 chunks, 44 queries, 6 multi-hop
 
-## Phase 2a — Server Environment ✅
+For each domain, all four matrices are present:
 
-`server/rag_debug_env_environment.py` — `RAGDebugEnvironment(Environment)` fully implemented.
+- `S_true_general.npy`
+- `S_true_medical.npy`
+- `S_true_legal.npy`
+- `S_true_code.npy`
 
-- `reset(task_id, seed)` — loads corpus, samples faults, applies them, returns initial observation
-- `step(action)` — applies action to config or S_matrix, recomputes metrics, computes reward
-- `state` property — returns OpenEnv `State(episode_id, step_count)`
-- `get_internal_state()` — returns `InternalState` for graders (not sent to agent)
-- `get_last_reward()` — float, used by app.py to build StepResult
-- `grade()` — computes `EpisodeResult` after episode ends
+## Baselines
 
-**Fault injection:** 9 fault types, each modeled as a mathematical transformation of S_true:
-- `CHUNK_TOO_LARGE` — average pool (scipy uniform_filter1d)
-- `THRESHOLD_TOO_LOW` — Gaussian noise injection
-- `WRONG_EMBEDDING_MODEL` — row permutation of similarity scores
-- `DUPLICATE_FLOODING` — boost scores for random chunk subset
-- etc.
+- `baseline/eval_agent.py`: implemented zero-shot evaluator using OpenAI structured outputs
+- `baseline/train_grpo.py`: scaffold/stub only (training loop TODOs remain)
 
-**Synthetic fallback:** If corpus files not found, generates synthetic NumPy data. Allows all tests to run before `build_corpus.py` completes.
+## Testing Status
 
----
+- No `tests/` package is currently present in the repository snapshot.
+- Validation is currently operationally centered on:
+  - corpus verification (`corpora/stages/verify.py`)
+  - baseline agent rollouts (`baseline/eval_agent.py`)
+  - OpenEnv validation command (`openenv validate`)
 
-## Phase 2b — FastAPI App + Client ✅
+## Deployment and Runtime
 
-`server/app.py`:
-```python
-app = create_env_app(env, RAGDebugAction, RAGDebugObservation)
-# Adds custom GET /grade endpoint
-```
+- Local server run: `uvicorn server.app:app --host 0.0.0.0 --port 8000`
+- Script entry point exists: `server = "server.app:main"` in `pyproject.toml`
+- Docker build is configured with `uv sync` lock-aware install flow
 
-`client.py` — `RAGDebugEnv(HTTPEnvClient[RAGDebugAction, RAGDebugObservation])`:
-- `reset(task_id=1)` — async, sends task_id in payload
-- `step(action)` — standard
-- `grade()` — custom endpoint call, returns `EpisodeResult`
+## Known Gaps
 
-`__init__.py` exports: `RAGDebugEnv`, `RAGDebugAction`, `RAGDebugObservation`
-
----
-
-## Phase 3 — Corpus Build ✅
-
-### Stage Status
-
-- Stage 1 (`s1_load.py`) — ✅ implemented and cached per domain
-- Stage 2 (`s2_chunk.py`) — ✅ implemented and cached per domain
-- Stage 3 (`s3_queries.py`) — ✅ implemented and cached per domain
-- Stage 4 (`s4_multihop.py`) — ✅ implemented (medical-only multi-hop)
-- Stage 5 (`s5_embed.py`) — ✅ implemented and generated `S_true_{general,medical,legal,code}.npy`
-- Stage 6 (`s6_grade.py`) — ⏳ pending
-
-Current corpus artifacts exist for `software`, `climate`, and `medical` through Stage 5.
-See `docs/CORPUS_BUILD_PLAN.md` for Stage 6 and verification specs.
-
----
-
-## Phase 4 — Tests ⏳
-
-`tests/test_environment.py` and `tests/test_faults.py` are written but not yet validated against the real environment (only runs with synthetic fallback currently). Will be fully validated after corpus build completes.
-
----
-
-## Phase 5 — Baseline Script ⏳
-
-`baseline/run_baseline.py` — not yet written.
-
-Design: GPT-4o (or GPT-4o-mini) agent using structured JSON outputs matching `RAGDebugAction` schema. Loop: format observation as prompt → LLM response → parse action → env.step() → repeat until done. Report per-task scores.
-
----
-
-## Phase 6 — Deployment ⏳
-
-- `openenv validate` — not yet run (requires openenv CLI)
-- HuggingFace Space — not yet deployed
-- Docker build/run — Dockerfile written, not yet tested end-to-end
+- GRPO training is not fully implemented yet (`baseline/train_grpo.py`)
+- `inference.py` is still a template/sample for a different environment and is not wired to `RAGDebugEnv`
+- Documentation outside `docs/` (for example `README.md`) still contains stale statements and should be reconciled separately

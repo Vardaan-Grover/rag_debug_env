@@ -1,173 +1,157 @@
-<h1 align="center">
-  🚀 RAGDebugEnv
-</h1>
-
-<p align="center">
-  <strong>An OpenEnv-compliant RL environment for training autonomous agents to debug and heal broken RAG pipelines.</strong>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10%2B-blue" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/OpenEnv-Compatible-green" alt="OpenEnv">
-  <img src="https://img.shields.io/badge/Reinforcement%20Learning-Ready-orange" alt="RL">
-  <img src="https://img.shields.io/badge/Domain-RAG%20Pipelines-purple" alt="RAG">
-</p>
-
+---
+title: RAGDebugEnv
+emoji: 🔍
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
 ---
 
-## 🌟 The Elevator Pitch
+# RAGDebugEnv
 
-Retrieval-Augmented Generation (RAG) pipelines are notoriously fragile. A wrong chunk size, a misconfigured similarity threshold, or a poorly matched embedding model can silently destroy retrieval quality. 
+RAGDebugEnv is an OpenEnv-compatible environment for training and evaluating agents that debug broken retrieval pipelines.
 
-Training an AI Agent to fix these pipelines autonomously requires Reinforcement Learning (RL). But there's a huge problem: **Real RAG pipelines are too slow for RL.** A single retrieval step takes 5-10 seconds. Training an agent over millions of episodes would take years.
+The environment simulates retrieval behavior with precomputed similarity matrices so each step is fast, while still exposing realistic debugging actions such as threshold tuning, top-k tuning, embedding model swaps, reranking toggles, and query rewrites.
 
-**Enter RAGDebugEnv.** ⚡
+## Current Status
 
-RAGDebugEnv is a revolutionary simulated environment that reduces RAG execution time to **sub-milliseconds** per step. By performing the heavy lifting offline and simulating pipeline failures using pure matrix mathematics, RAGDebugEnv allows you to train robust AI debugging agents on a standard laptop. 
+This repository currently includes:
 
-Best of all? **Zero Sim-to-Real Gap.** The observation schema your agent sees in simulation is *identical* to a production backend (Pinecone, Weaviate, etc.). Train your agent in milliseconds, then deploy it to fix real-world enterprise RAG pipelines!
+- A working OpenEnv server app in server/app.py
+- A working environment implementation in server/rag_debug_env_environment.py
+- Typed action and observation contracts in models.py
+- A working client in client.py
+- A full corpus build pipeline across stages s1 to s6 plus verification
+- A working baseline evaluator in baseline/eval_agent.py
+- A GRPO training scaffold in baseline/train_grpo.py (not fully implemented yet)
 
----
+## Tasks
 
-## 🔥 Key Features & Immense Value
+The environment defines three tasks:
 
-- ⚡ **Speed of Light Simulation**: By caching vector similarities into `S_true` matrices offline, episodes run in milliseconds instead of seconds.
-- 🧬 **Mathematical Fault Injection**: Simulates 9 common RAG failures (e.g., `CHUNK_TOO_LARGE`, `THRESHOLD_TOO_LOW`, `DUPLICATE_FLOODING`, `WRONG_EMBEDDING_MODEL`) through clever matrix transformations rather than slow text operations.
-- 🎯 **Absolute Ground Truth**: Uses Cross-Encoder grading (`R*`) independent of the embedding model to provide an undisputable "actual relevance" reward signal for the agent.
-- 🧠 **Curriculum Training**: Three beautifully crafted task tiers—from simple single-fault Python docs to multi-hop medical textbook failures.
-- 🚀 **OpenEnv Standard**: Fully compliant with the AgentBeats OpenEnv framework, making it ready for out-of-the-box local training and Hugging Face Spaces deployment. 
+- Task 1: software domain, sampled config faults
+- Task 2: climate domain, sampled compound faults
+- Task 3: medical domain, fixed fault set including wrong embedding model and multi-hop emphasis
 
----
+Runtime constants currently used by the environment:
 
-## 🧠 Architecture Deep Dive (How It Works)
+- Episode queries per task: 5
+- Max steps per episode: 10
+- Task success is based on task score thresholds in environment logic, not raw coverage alone
 
-If you're an engineer, you'll love this. **The environment never runs a real RAG pipeline during episodes.**
+## Architecture (Short)
 
-### The Offline-to-Online Pipeline
+Episode-time simulation flow:
 
-```text
-1. OFFLINE (Run Once via build_corpus.py):
-Documents → Chunks → Embed (via 4 models) → S_true_[model].npy
-Chunks + Queries → Cross-encoder → ground_truth.json (R*)
+1. Load corpus artifacts for one domain
+2. Sample episode queries and injected faults
+3. Build faulted similarity matrix from S_true matrices and fault math
+4. Simulate top-k plus threshold retrieval
+5. Compute coverage and precision against ground truth R*
+6. Return dense reward for iterative debugging
 
-2. ONLINE (During Agent Training - milliseconds):
-S_faulted = apply_fault_math(S_true_general)
-R_agent = threshold_filter(top_k(S_faulted, config))
-coverage = |R_agent ∩ R*| / |R*|
-Reward = delta(coverage) + precision - costs
-```
+For full details, see docs/ARCHITECTURE.md.
 
-### The Two Matrices
-1. **`S_true` (Bi-encoder Similarity)**: Represents how the embedding model *perceives* similarity. Shape: `(n_queries, n_chunks)`.
-2. **`R*` (Ground Truth)**: Represents *actual* relevance determined by an offline cross-encoder. Independent of embeddings. The gap between `S_true` and `R*` is the learning signal for the agent!
+## Repository Layout
 
-### Simulating Faults with Math
-Instead of manipulating text chunks on the fly, faults are applied as mathematical transformations on the `S_true` matrix:
-* **`CHUNK_TOO_LARGE`**: `scipy.ndimage.uniform_filter1d(S_true)` (averages neighboring scores, diluting relevance).
-* **`THRESHOLD_TOO_HIGH`**: `S_true * 0.55` (deflates all scores, hiding relevant chunks).
-* **`WRONG_EMBEDDING_MODEL`**: `permute_rows(S_true)` (scrambles scores, simulating a model that doesn't understand the domain).
+- baseline/: eval and training scripts
+- corpora/: corpus artifacts, builder, and stages
+- docs/: architecture and reference docs
+- server/: app entrypoint, environment, constants, corpus loader, fault math
+- client.py: OpenEnv client implementation
+- models.py: Action, Observation, and internal models
+- openenv.yaml: OpenEnv manifest
+- pyproject.toml: package metadata and base dependencies
 
----
+## Setup
 
-## 🛠️ Local Setup & Quick Start
+Recommended setup uses uv lock resolution:
 
-Want to train your own RAG healer? Follow these steps to get everything running locally on your machine.
-
-### 1. Prerequisites
-- **Python 3.10+** installed
-- **Docker** (optional, but recommended for the isolated server)
-- Git
-
-### 2. Installation
-Clone the repository and set up your virtual environment:
 ```bash
-git clone https://github.com/your-username/rag_debug_env.git
-cd rag_debug_env
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -e ".[dev]"
+uv sync
 ```
 
-### 3. Build the Corpus (The Offline Magic)
-Before running the environment, generate the `S_true` matrices and `R*` ground truth.
+Alternative setup:
+
 ```bash
-# This will run Stages 1-5 (Document loading -> Chunking -> Query Gen -> Embedding)
-python -m corpora.build_corpus
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
-### 4. Start the Environment Server
-You have two ways to run the environment: natively or via Docker.
+Note: corpus building and baseline evaluation require additional ML/data dependencies (for example sentence-transformers, datasets, scikit-learn, tiktoken, torch, openai). If you do not use uv sync, install those manually.
 
-**Option A: Native Python (Fastest for local testing)**
+## Required Environment Variables
+
+For corpus build and baseline eval:
+
+- OPENAI_API_KEY
+
+Optional runtime variables used by parts of the stack:
+
+- HF_TOKEN
+- API_BASE_URL
+- MODEL_NAME
+
+## Build Corpus
+
+Build one domain:
+
 ```bash
-python -m rag_debug_env.server.app
+python -m corpora.build_corpus --domain software
+python -m corpora.build_corpus --domain climate
+python -m corpora.build_corpus --domain medical
 ```
 
-**Option B: Docker (Closest to production/OpenEnv)**
+Build all domains:
+
 ```bash
-docker build -t rag_debug_env-env:latest -f server/Dockerfile .
-# The environment client will automatically spin up the container when initialized
+python -m corpora.build_corpus --domain all
 ```
 
-### 5. Run the Baseline Agent
-Test the environment with our baseline agent that will try to fix pipeline errors:
+Outputs are written under corpora/<domain>/ including:
+
+- docs.json
+- chunks.json
+- queries.json
+- ground_truth.json
+- S_true_general.npy
+- S_true_medical.npy
+- S_true_legal.npy
+- S_true_code.npy
+- corpus_stats.json
+
+For stage details, see docs/CORPUS_BUILD_PLAN.md.
+
+## Run Server
+
 ```bash
-python -m baseline.eval_agent --task 1 --episodes 3
+uvicorn server.app:app --host 0.0.0.0 --port 8000
 ```
 
-*(You should see the agent attempting to fix faults and interacting with the simulation in sub-milliseconds!)*
+## Run Baseline Evaluator
 
----
-
-## 🎮 The Training Tasks
-
-We designed the environment with a continuous curriculum:
-
-| Task Tier | Domain | Fault Complexity | Max Steps | Goal |
-|---|---|---|---|---|
-| **Task 1 (Easy)** | Software (Python Docs) | 1 Random Fault | 10 | Fix the single point of failure |
-| **Task 2 (Medium)** | Climate (Wikipedia) | 2 Interacting Faults | 15 | Fix compounded issues (e.g. Chunk Too Large + No Reranking) |
-| **Task 3 (Hard)** | Medical (Textbooks) | 3 Faults (Multi-hop) | 20 | Swap to the correct domain embedding model + tune config |
-
----
-
-## 💻 OpenEnv API Usage Example
-
-Integrating with your own agent is incredibly simple:
-
-```python
-from rag_debug_env import RagDebugAction, RagDebugEnv
-
-# Connect to the environment
-env = RagDebugEnv.from_docker_image("rag_debug_env-env:latest")
-
-# Reset to get a new broken RAG pipeline (Task 1)
-result = env.reset(task_id=1)
-print(f"Initial State: {result.observation}")
-
-# Take an action to fix it
-action = RagDebugAction(action_type="ADJUST_THRESHOLD", value=0.65)
-result = env.step(action)
-
-print(f"New Reward: {result.reward}")
-env.close()
+```bash
+python baseline/eval_agent.py --task 1 --episodes 3
+python baseline/eval_agent.py --task all --episodes 2
 ```
 
----
+## Validate OpenEnv Wiring
 
-## 🤝 Contributing
+```bash
+openenv validate
+```
 
-We welcome pull requests! Whether it's adding new faults, expanding domains, or optimizing the baseline agent:
-1. Fork the repo.
-2. Create a feature branch: `git checkout -b feature/cool-new-fault`
-3. Commit your changes: `git commit -m 'Add sparse retrieval fault'`
-4. Push to the branch: `git push origin feature/cool-new-fault`
-5. Open a Pull Request.
+## Known Gaps
 
----
+- baseline/train_grpo.py is a scaffold with TODO sections
+- inference.py is currently a template for a different environment and is not wired to RAGDebugEnv
+- If corpus artifacts are missing, server/corpus.py falls back to synthetic data for smoke tests
 
-*Built for the AgentBeats OpenEnv Hackathon.* 🌟
+## Additional Documentation
+
+- docs/ARCHITECTURE.md
+- docs/BUILD_STATUS.md
+- docs/CLAUDE.md
+- docs/CORPUS_BUILD_PLAN.md
+- docs/MODELS_REFERENCE.md

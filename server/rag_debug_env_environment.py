@@ -32,62 +32,33 @@ import numpy as np
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
 
-try:
-    from .constants import (
-        _TASK_DOMAIN,
-        _TASK_DESCRIPTION,
-        _N_EPISODE_QUERIES,
-        _MAX_STEPS,
-        _SUCCESS_COVERAGE,
-        _MODEL_FILE,
-        _TASK1_FAULT_SETS,
-        _TASK2_FAULT_SETS,
-        _TASK3_FAULTS,
-    )
-    from .corpus import _load_corpus
-    from .fault_math import apply_faults
-    from models import (
-        RAGDebugAction,
-        RAGDebugObservation,
-        ActionType,
-        EmbeddingModel,
-        FaultType,
-        FaultConfig,
-        InternalState,
-        PipelineConfig,
-        QueryResult,
-        QualityMetrics,
-        CorpusStats,
-        Domain,
-    )
-except ImportError:
-    from constants import (
-        _TASK_DOMAIN,
-        _TASK_DESCRIPTION,
-        _N_EPISODE_QUERIES,
-        _MAX_STEPS,
-        _SUCCESS_COVERAGE,
-        _MODEL_FILE,
-        _TASK1_FAULT_SETS,
-        _TASK2_FAULT_SETS,
-        _TASK3_FAULTS,
-    )
-    from corpus import _load_corpus
-    from fault_math import apply_faults
-    from models import (
-        RAGDebugAction,
-        RAGDebugObservation,
-        ActionType,
-        EmbeddingModel,
-        FaultType,
-        FaultConfig,
-        InternalState,
-        PipelineConfig,
-        QueryResult,
-        QualityMetrics,
-        CorpusStats,
-        Domain,
-    )
+from server.constants import (
+    _TASK_DOMAIN,
+    _TASK_DESCRIPTION,
+    _N_EPISODE_QUERIES,
+    _MAX_STEPS,
+    _SUCCESS_COVERAGE,
+    _MODEL_FILE,
+    _TASK1_FAULT_SETS,
+    _TASK2_FAULT_SETS,
+    _TASK3_FAULTS,
+)
+from server.corpus import _load_corpus
+from server.fault_math import apply_faults
+from models import (
+    RAGDebugAction,
+    RAGDebugObservation,
+    ActionType,
+    EmbeddingModel,
+    FaultType,
+    FaultConfig,
+    InternalState,
+    PipelineConfig,
+    QueryResult,
+    QualityMetrics,
+    CorpusStats,
+    Domain,
+)
 
 class RAGDebugEnvironment(Environment):
     """
