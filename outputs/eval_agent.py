@@ -3,8 +3,8 @@ from __future__ import annotations
 import sys
 
 """
-baseline/eval_agent.py
-----------------------
+outputs/eval_agent.py
+---------------------
 Zero-shot eval agent using GPT-4o-mini to diagnose and fix broken RAG pipelines.
 
 Purpose: validate the environment end-to-end — confirm reward signals are

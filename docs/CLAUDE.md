@@ -10,15 +10,13 @@ A simulated OpenEnv environment for debugging RAG retrieval pipelines by RL-styl
 - Environment logic: `server/rag_debug_env_environment.py`
 - Action/observation models: `models.py`
 - Client: `client.py`
+- Inference script: `inference.py` (competition-ready, uses OpenAI client)
 - Corpus build pipeline: `corpora/build_corpus.py` and `corpora/stages/*`
 
 ## Project Layout (Current)
 
 ```text
 rag_debug_env/
-  baseline/
-    eval_agent.py
-    train_grpo.py
   corpora/
     build_corpus.py
     software/
@@ -39,6 +37,9 @@ rag_debug_env/
     CLAUDE.md
     CORPUS_BUILD_PLAN.md
     MODELS_REFERENCE.md
+  outputs/
+    eval_agent.py
+    train_grpo.py
   server/
     app.py
     constants.py
@@ -46,6 +47,7 @@ rag_debug_env/
     fault_math.py
     rag_debug_env_environment.py
   client.py
+  inference.py
   models.py
   pyproject.toml
   openenv.yaml
@@ -59,6 +61,7 @@ rag_debug_env/
 - Task 3 starts with `embedding_model=legal` intentionally
 - Task success is based on task score thresholds in `_check_success`, not raw coverage alone
 - Synthetic corpus fallback exists in `server/corpus.py` for missing artifacts
+- HF Spaces port is `7860` (set in README frontmatter, Dockerfile, and openenv.yaml)
 
 ## Corpus Build Facts
 
@@ -76,10 +79,11 @@ Outputs per domain:
 - `S_true_code.npy`
 - `corpus_stats.json`
 
-## Baseline Script Status
+## Scripts
 
-- `baseline/eval_agent.py` is actively usable.
-- `baseline/train_grpo.py` is a structured stub with TODOs.
+- `outputs/eval_agent.py` — GPT-4o-mini zero-shot eval agent (actively usable).
+- `outputs/train_grpo.py` — GRPO training scaffold (stub with TODOs).
+- `inference.py` — Competition inference script with [START]/[STEP]/[END] logging.
 
 ## Commands
 
@@ -91,16 +95,14 @@ python -m corpora.build_corpus --domain software
 python -m corpora.build_corpus --domain all
 
 # Run server
-uvicorn server.app:app --host 0.0.0.0 --port 8000
+uvicorn server.app:app --host 0.0.0.0 --port 7860
 
 # Run baseline evaluator
-python baseline/eval_agent.py --task 1 --episodes 3
+python outputs/eval_agent.py --task 1 --episodes 3
+
+# Run inference script
+python inference.py
 
 # Validate OpenEnv integration
 openenv validate
 ```
-
-## Important Caveats
-
-- `inference.py` is currently a template for a different environment (`MyEnvV4*`) and should not be treated as the production inference path for this repo.
-- `README.md` contains outdated values relative to current constants and should be treated cautiously until it is updated.

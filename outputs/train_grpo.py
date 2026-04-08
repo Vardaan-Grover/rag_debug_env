@@ -1,6 +1,6 @@
 """
-baseline/train_grpo.py
-----------------------
+outputs/train_grpo.py
+---------------------
 GRPO training script for RAGDebugEnv using Qwen2.5-1.5B-Instruct.
 
 STATUS: Stub — structure and wiring are in place. Full implementation

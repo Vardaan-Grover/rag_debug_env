@@ -93,6 +93,7 @@ class RAGDebugEnvironment(Environment):
         # Per-episode numpy data
         self._chunk_ids: List[int] = []
         self._chunk_tokens: List[int] = []
+        self._chunk_id_to_tokens: Dict[int, int] = {}  # O(1) token lookup
         self._s_true_episode: Dict[str, np.ndarray] = {}  # model_name → (n_q, n_c) float32
         self._active_model: EmbeddingModel = EmbeddingModel.GENERAL
 
@@ -115,6 +116,8 @@ class RAGDebugEnvironment(Environment):
         self._prev_metrics: Optional[QualityMetrics] = None
         self._prev_action_type: Optional[ActionType] = None
         self._done: bool = False
+        self._last_action_error: Optional[str] = None
+        self._last_reward_components: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # OpenEnv required interface
@@ -145,6 +148,8 @@ class RAGDebugEnvironment(Environment):
         self._state = State(episode_id=ep_id, step_count=0)
         self._done = False
         self._prev_action_type = None
+        self._last_action_error = None
+        self._last_reward_components = {}
 
         # Domain & corpus
         self._domain = _TASK_DOMAIN[task_id].value
@@ -161,6 +166,9 @@ class RAGDebugEnvironment(Environment):
         # Build episode index structures
         self._chunk_ids = [c["chunk_id"] for c in self._chunks]
         self._chunk_tokens = [c.get("n_tokens", 100) for c in self._chunks]
+        self._chunk_id_to_tokens = {
+            c["chunk_id"]: c.get("n_tokens", 100) for c in self._chunks
+        }
         n_q = len(self._episode_queries)
         n_c = len(self._chunks)
 
@@ -248,6 +256,9 @@ class RAGDebugEnvironment(Environment):
         if reward_obj is None:
             reward_obj = self._compute_reward(prev_metrics, new_metrics, action)
 
+        # Keep per-step reward components available in observations.
+        self._last_reward_components = dict(reward_obj.components)
+
         self._internal_state.action_history.append(action)
         self._internal_state.reward_history.append(reward_obj.value)
 
@@ -291,6 +302,7 @@ class RAGDebugEnvironment(Environment):
         Apply action to config / overlays.
         Returns a Reward if the action is SUBMIT, else None.
         """
+        self._last_action_error = None
         t = action.action_type
         p = action.params
 
@@ -298,39 +310,39 @@ class RAGDebugEnvironment(Environment):
             value = int(p.get("value", self._config.chunk_size))
             try:
                 self._config = self._config.model_copy(update={"chunk_size": value})
-            except Exception:
-                pass  # invalid param; no-op
+            except (ValueError, TypeError) as exc:
+                self._last_action_error = f"Invalid chunk_size {value}: {exc}"
             self._recompute_S_faulted()
 
         elif t == ActionType.ADJUST_CHUNK_OVERLAP:
             value = int(p.get("value", self._config.chunk_overlap))
             try:
                 self._config = self._config.model_copy(update={"chunk_overlap": value})
-            except Exception:
-                pass
+            except (ValueError, TypeError) as exc:
+                self._last_action_error = f"Invalid chunk_overlap {value}: {exc}"
             # Overlap has no direct matrix effect; no recompute needed
 
         elif t == ActionType.ADJUST_THRESHOLD:
             value = float(p.get("value", self._config.similarity_threshold))
             try:
                 self._config = self._config.model_copy(update={"similarity_threshold": value})
-            except Exception:
-                pass
+            except (ValueError, TypeError) as exc:
+                self._last_action_error = f"Invalid threshold {value}: {exc}"
             # Threshold is applied in retrieval simulation; no matrix recompute
 
         elif t == ActionType.ADJUST_TOP_K:
             value = int(p.get("value", self._config.top_k))
             try:
                 self._config = self._config.model_copy(update={"top_k": value})
-            except Exception:
-                pass
+            except (ValueError, TypeError) as exc:
+                self._last_action_error = f"Invalid top_k {value}: {exc}"
 
         elif t == ActionType.ADJUST_CONTEXT_LIMIT:
             value = int(p.get("value", self._config.context_window_limit))
             try:
                 self._config = self._config.model_copy(update={"context_window_limit": value})
-            except Exception:
-                pass
+            except (ValueError, TypeError) as exc:
+                self._last_action_error = f"Invalid context_limit {value}: {exc}"
             self._recompute_S_faulted()
 
         elif t == ActionType.SWAP_EMBEDDING_MODEL:
@@ -339,8 +351,8 @@ class RAGDebugEnvironment(Environment):
                 new_model = EmbeddingModel(model_str)
                 self._active_model = new_model
                 self._config = self._config.model_copy(update={"embedding_model": new_model})
-            except Exception:
-                pass
+            except (ValueError, KeyError) as exc:
+                self._last_action_error = f"Invalid embedding model '{model_str}': {exc}"
             self._recompute_S_faulted()
 
         elif t == ActionType.TOGGLE_RERANKING:
@@ -362,6 +374,7 @@ class RAGDebugEnvironment(Environment):
             self._recompute_S_faulted()
 
         elif t == ActionType.SUBMIT:
+            # Compute final metrics at SUBMIT time for accurate grading.
             results = self._simulate_retrieval()
             metrics = self._compute_metrics(results)
             task_score = self._compute_task_score(metrics)
@@ -369,14 +382,12 @@ class RAGDebugEnvironment(Environment):
 
             success = self._check_success(metrics, task_score)
             if success:
-                # Success reward: 0.7–1.0, scaled by quality of solution
                 terminal_value = float(np.clip(0.7 + 0.3 * task_score, 0.7, 1.0))
                 return Reward(
                     value=terminal_value,
                     components={"terminal_success": terminal_value},
                 )
             else:
-                # Failure reward: 0.0–0.2, partial credit for quality achieved
                 terminal_value = float(np.clip(0.2 * task_score, 0.0, 0.2))
                 return Reward(
                     value=terminal_value,
@@ -458,11 +469,9 @@ class RAGDebugEnvironment(Environment):
 
             # Context overflow check
             total_tokens = sum(
-                self._chunk_tokens[self._chunk_ids.index(cid)]
+                self._chunk_id_to_tokens.get(cid, 100)
                 for cid in retrieved_ids
-                if cid in self._chunk_ids
             )
-            is_overflow = total_tokens > config.context_window_limit
 
             results.append(
                 QueryResult(
@@ -493,9 +502,8 @@ class RAGDebugEnvironment(Environment):
         config = self._config
         for r in results:
             total = sum(
-                self._chunk_tokens[self._chunk_ids.index(cid)]
+                self._chunk_id_to_tokens.get(cid, 100)
                 for cid in r.retrieved_chunk_ids
-                if cid in self._chunk_ids
             )
             if total > config.context_window_limit:
                 n_overflow += 1
@@ -562,7 +570,6 @@ class RAGDebugEnvironment(Environment):
             components["empty_retrieval_signal"] = 0.0
             components["overflow_signal"] = 0.0
 
-        # --- Efficiency penalties ---
         components["step_cost"] = -0.01
 
         # Redundancy penalty for repeating the same action type consecutively
@@ -571,10 +578,19 @@ class RAGDebugEnvironment(Environment):
         else:
             components["redundancy_penalty"] = 0.0
 
-        # --- Combine: 0.5 midpoint + components, clipped to [0, 1] ---
+        # Penalty for newly introduced empty retrievals
+        if prev is not None:
+            new_empties = max(0, new.n_empty_retrievals - prev.n_empty_retrievals)
+            components["empty_retrieval_penalty"] = -0.15 * new_empties
+        else:
+            components["empty_retrieval_penalty"] = 0.0
+
+        # Penalty for invalid action parameters.
+        if self._last_action_error is not None:
+            components["invalid_action_penalty"] = -0.05
+
         raw = 0.5 + sum(components.values())
         value = float(np.clip(raw, 0.0, 1.0))
-
         return Reward(value=value, components=components)
 
     def _compute_task_score(self, metrics: QualityMetrics) -> float:
@@ -647,6 +663,75 @@ class RAGDebugEnvironment(Environment):
         return sampled
 
     # ------------------------------------------------------------------
+    # Diagnostic hints
+    # ------------------------------------------------------------------
+
+    def _generate_diagnostic_hints(
+        self, metrics: QualityMetrics, results: List[QueryResult]
+    ) -> List[str]:
+        """Generate context-aware hints based on current metric patterns."""
+        hints: List[str] = []
+        cfg = self._config
+
+        if metrics.n_empty_retrievals > 0:
+            hints.append(
+                f"{metrics.n_empty_retrievals} queries have empty retrievals — "
+                "consider lowering similarity_threshold or increasing top_k."
+            )
+
+        if metrics.n_context_overflows > 0:
+            hints.append(
+                f"{metrics.n_context_overflows} queries exceed context window — "
+                "consider increasing context_window_limit or reducing top_k."
+            )
+
+        if metrics.mean_coverage < 0.5 and metrics.mean_precision > 0.3:
+            hints.append(
+                "Low coverage with moderate precision suggests top_k is too small "
+                "or the embedding model may not suit this domain."
+            )
+
+        if metrics.mean_coverage < 0.4 and metrics.mean_precision < 0.3:
+            hints.append(
+                "Both coverage and precision are low — check if the similarity threshold "
+                "is filtering out too many chunks, or if the embedding model is mismatched."
+            )
+
+        # Check for score compression (sign of wrong embedding model or TOP_K_TOO_SMALL)
+        all_scores = [s for r in results for s in r.retrieval_scores]
+        if all_scores:
+            score_std = float(np.std(all_scores))
+            score_mean = float(np.mean(all_scores))
+            if score_std < 0.05 and len(all_scores) > 3:
+                hints.append(
+                    f"Retrieval scores are tightly compressed (std={score_std:.3f}) — "
+                    "this may indicate the wrong embedding model or score compression fault."
+                )
+            if score_mean > 0.7 and metrics.mean_precision < 0.5:
+                hints.append(
+                    "High retrieval scores but low precision — many irrelevant chunks are "
+                    "scoring high. Consider enabling reranking or checking for duplicate flooding."
+                )
+
+        # Task 3 multi-hop hint
+        if self._task_id == 3:
+            mh_cov = metrics.multi_hop_coverage
+            if mh_cov is not None and mh_cov < 0.5:
+                hints.append(
+                    f"Multi-hop coverage is low ({mh_cov:.3f}) — multi-hop queries need "
+                    "broad retrieval. Consider increasing top_k and checking the embedding model."
+                )
+
+        # Reranking hint
+        if not cfg.use_reranking and metrics.mean_precision < 0.4:
+            hints.append(
+                "Reranking is disabled. Enabling it can improve precision by re-scoring "
+                "candidates with a cross-encoder."
+            )
+
+        return hints
+
+    # ------------------------------------------------------------------
     # Observation builder
     # ------------------------------------------------------------------
 
@@ -666,6 +751,7 @@ class RAGDebugEnvironment(Environment):
             n_multi_hop_queries=cs.get("n_multi_hop_queries", 0),
         )
         metrics = self._compute_metrics(results)
+        hints = self._generate_diagnostic_hints(metrics, results)
 
         obs = RAGDebugObservation(
             pipeline_config=self._config,
@@ -677,6 +763,9 @@ class RAGDebugEnvironment(Environment):
             task_id=self._task_id,
             task_description=_TASK_DESCRIPTION[self._task_id],
             done=self._done,
+            last_action_error=self._last_action_error,
+            diagnostic_hints=hints,
+            reward_components=self._last_reward_components,
         )
         obs.reward = reward
         return obs
