@@ -88,14 +88,17 @@ Values below are sourced from `server/constants.py` and `server/rag_debug_env_en
 
 ## Reward and Scoring
 
-All rewards are in **[0.0, 1.0]**.  Non-terminal steps use 0.5 as the neutral
-midpoint (>0.5 = improvement, <0.5 = degradation).
+All rewards are in **[0.0, 1.0]**.  Non-terminal steps span **[0.0, ~0.89]**
+based on absolute quality progress toward the success threshold.
 
 Dense step reward (`_compute_reward`):
 
-- `coverage_delta`: Δmean_coverage clipped to [-1,1], weight ×0.20
-- `precision_delta`: Δmean_precision clipped to [-1,1], weight ×0.10
-- `multi_hop_delta`: Δmulti_hop_coverage clipped to [-1,1], weight ×0.08 (Task 3 only)
+- `progress_reward`: `0.10 + 0.55 × min(1, quality_score / quality_target)` → [0.10, 0.65]
+  Absolute quality level signal using `_quality_score` (task_score formula minus efficiency).
+  Ensures the full reward range is utilised across the episode — low-quality states
+  get low rewards, high-quality states get high rewards.
+- `delta_bonus`: `clip(Δquality × 2.0, −0.15, +0.15)`
+  Direction signal that distinguishes an improving step from a no-op at the same level.
 - `empty_retrieval_signal`: bidirectional, weight ×0.06 (rewards fixing empties too)
 - `overflow_signal`: bidirectional, weight ×0.04 (rewards fixing overflows too)
 - `step_cost = -0.01`
@@ -124,6 +127,10 @@ All transformations are in `server/fault_math.py`.
 - `CONTEXT_OVERFLOW`: zeroes tail columns based on `context_window_limit`
 - `NO_RERANKING`: additive noise only when reranking is off
 - `WRONG_EMBEDDING_MODEL`: implicit by selecting wrong matrix (not a direct transform)
+- **Cross-encoder reranking blend**: after all faults, if `use_reranking=True`,
+  blends faulted scores back toward pre-fault scores (alpha=0.35). Simulates a
+  cross-encoder partially recovering true relevance signal. Non-monotonic for
+  noise-based faults (changes rank order), restores score spread for compression faults.
 
 ## Determinism and Fallbacks
 

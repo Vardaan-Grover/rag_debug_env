@@ -44,25 +44,25 @@ For each domain, all four matrices are present:
 
 ## Baselines
 
-- `baseline/eval_agent.py`: implemented zero-shot evaluator using OpenAI structured outputs
-- `baseline/train_grpo.py`: scaffold/stub only (training loop TODOs remain)
+- `outputs/eval_agent.py`: implemented zero-shot evaluator using OpenAI structured outputs
+- `outputs/train_grpo.py`: scaffold/stub only (training loop TODOs remain)
 
 ## Testing Status
 
 - No `tests/` package is currently present in the repository snapshot.
 - Validation is currently operationally centered on:
   - corpus verification (`corpora/stages/verify.py`)
-  - baseline agent rollouts (`baseline/eval_agent.py`)
+  - baseline agent rollouts (`outputs/eval_agent.py`)
   - OpenEnv validation command (`openenv validate`)
 
 ## Deployment and Runtime
 
-- Local server run: `uvicorn server.app:app --host 0.0.0.0 --port 8000`
+- Local server run: `uvicorn server.app:app --host 0.0.0.0 --port 7860`
 - Script entry point exists: `server = "server.app:main"` in `pyproject.toml`
 - Docker build is configured with `uv sync` lock-aware install flow
 
 ## Known Gaps
 
-- GRPO training is not fully implemented yet (`baseline/train_grpo.py`)
-- `inference.py` is still a template/sample for a different environment and is not wired to `RAGDebugEnv`
-- Documentation outside `docs/` (for example `README.md`) still contains stale statements and should be reconciled separately
+- GRPO training is not fully implemented yet (`outputs/train_grpo.py`)
+- Baseline inference is implemented in `inference.py` and emits structured `[START]/[STEP]/[END]` logs.
+- Some documentation outside `docs/` may still lag recent tuning changes and should be reconciled periodically.

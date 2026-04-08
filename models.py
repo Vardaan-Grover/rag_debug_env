@@ -355,9 +355,9 @@ class Reward(BaseModel):
     """
     The reward signal produced by env.step().
 
-    All rewards are in [0.0, 1.0].  0.5 is the neutral midpoint for
-    non-terminal steps; values above 0.5 indicate improvement, below
-    indicate degradation.
+    All rewards are in [0.0, 1.0].  Non-terminal step rewards span
+    [0.0, ~0.89] based on absolute quality progress; terminal rewards
+    occupy [0.7, 1.0] (success) or [0.0, 0.15] (failure).
 
     value is the scalar used by the RL algorithm.
 
@@ -365,15 +365,20 @@ class Reward(BaseModel):
     environment always populates this — it aids debugging and makes
     reward shaping decisions auditable.
 
-    Non-terminal step components (midpoint-centered)
-    -------------------------------------------------
-    coverage_delta          Δmean_coverage clipped to [-1,1], weight 0.20
-    precision_delta         Δmean_precision clipped to [-1,1], weight 0.10
-    multi_hop_delta         Δmulti_hop_coverage clipped to [-1,1], weight 0.08 (Task 3 only)
+    Non-terminal step components
+    ----------------------------
+    progress_reward         0.10 + 0.55 × progress → [0.10, 0.65]
+                            progress = min(1, quality_score / quality_target)
+                            Absolute quality level signal; ensures full reward
+                            range is utilised across the episode.
+    delta_bonus             clip(Δquality × 2.0, −0.15, +0.15)
+                            Direction signal: distinguishes an improving step
+                            from a no-op at the same quality level.
     empty_retrieval_signal  Bidirectional: rewards fixing empties, penalizes new ones, weight 0.06
     overflow_signal         Bidirectional: rewards fixing overflows, penalizes new ones, weight 0.04
     step_cost               Fixed -0.01 per step (efficiency pressure)
     redundancy_penalty      -0.04 if same action type taken twice consecutively
+    invalid_action_penalty  -0.05 if the action had invalid parameters
 
     Terminal SUBMIT components
     --------------------------

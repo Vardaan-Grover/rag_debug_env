@@ -38,3 +38,9 @@ include-package-data = true
 # Since everything is in the root, we package our top-level modules
 py-modules = ["client", "models", "eval_embedding_models"]
 packages = ["server", "corpora", "outputs"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
+]

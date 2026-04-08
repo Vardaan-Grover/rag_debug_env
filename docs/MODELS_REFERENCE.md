@@ -68,6 +68,9 @@ Fields:
 - `task_id: int`
 - `task_description: str`
 - `done: bool`
+- `last_action_error: str | None`
+- `diagnostic_hints: list[str]`
+- `reward_components: dict[str, float]`
 
 Design note:
 
@@ -139,13 +142,23 @@ Static corpus metadata:
 
 Component names emitted by environment reward logic:
 
-- `coverage_delta`
-- `precision_delta`
+- `progress_reward`
+- `delta_bonus`
+- `empty_retrieval_signal`
+- `overflow_signal`
 - `step_cost`
 - `redundancy_penalty`
-- `empty_retrieval_penalty`
+- `invalid_action_penalty` (only when the last action had invalid params)
 
-Terminal submit rewards are handled directly in action routing (`+2.0` success, `-0.5` otherwise).
+Terminal submit components:
+
+- `terminal_success` (successful submit)
+- `terminal_failure` (unsuccessful submit)
+
+Terminal submit rewards are handled directly in action routing:
+
+- success: `0.7 + 0.3 * task_score` (clipped to `[0.7, 1.0]`)
+- failure: `0.2 * task_score` (clipped to `[0.0, 0.2]`)
 
 ### `FaultConfig`
 

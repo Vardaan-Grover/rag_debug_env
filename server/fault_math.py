@@ -70,6 +70,7 @@ def apply_faults(
     np.ndarray, same shape as S, dtype float32, values clipped to [0, 1].
     """
     S = S.copy().astype(np.float32)
+    S_clean = S.copy()  # preserve pre-fault scores for cross-encoder reranking blend
     n_q, n_c = S.shape
 
     # --- CHUNK_TOO_LARGE ---
@@ -126,6 +127,18 @@ def apply_faults(
     # Adds mild Gaussian noise. Skipped entirely when reranking is enabled.
     if FaultType.NO_RERANKING in fault_types and not config_use_reranking:
         S = S + 0.10 * noise[FaultType.NO_RERANKING]
+
+    # --- CROSS-ENCODER RERANKING ---
+    # A cross-encoder re-scores candidates using a stronger model that sees
+    # the full query-document pair, partially recovering the true relevance
+    # signal corrupted by faults.  We simulate this by blending faulted
+    # scores back toward the original (pre-fault) scores.
+    # This is non-monotonic for noise-based faults (undoes random
+    # perturbations) and restores score spread for compression faults
+    # (enabling effective threshold-based filtering).
+    if config_use_reranking:
+        rerank_alpha = 0.35
+        S = (1.0 - rerank_alpha) * S + rerank_alpha * S_clean
 
     # Clip to valid range and apply persistent query-rewrite boosts
     S = np.clip(S, 0.0, 1.0)

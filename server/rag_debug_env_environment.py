@@ -31,6 +31,7 @@ from uuid import uuid4
 import numpy as np
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import EnvironmentMetadata, State
+from pydantic import ValidationError
 
 from server.constants import (
     _TASK_DOMAIN,
@@ -204,6 +205,15 @@ class RAGDebugEnvironment(Environment):
         self._active_model = EmbeddingModel.LEGAL if task_id == 3 else EmbeddingModel.GENERAL
         self._config = self._config.model_copy(update={"embedding_model": self._active_model})
 
+        # Start from a mildly constrained baseline so most episodes leave
+        # headroom for meaningful improvement steps.
+        self._config = self._config.model_copy(
+            update={
+                "top_k": int(rng.integers(5, 9)),
+                "similarity_threshold": float(rng.uniform(0.34, 0.48)),
+            }
+        )
+
         # Sample and inject faults
         self._injected_faults = self._sample_faults(task_id, rng)
         self._internal_state = InternalState(
@@ -224,6 +234,10 @@ class RAGDebugEnvironment(Environment):
             self._config = self._config.model_copy(update={"top_k": int(rng.integers(2, 4))})
         elif FaultType.DUPLICATE_FLOODING in fault_types_active:
             self._config = self._config.model_copy(update={"top_k": int(rng.integers(4, 8))})
+
+        # If reset still lands in a very strong state, add one extra nudge
+        # so the agent usually has room to improve from step 1.
+        self._calibrate_initial_difficulty(rng)
 
         # Initial matrix + metrics
         self._recompute_S_faulted()
@@ -297,6 +311,24 @@ class RAGDebugEnvironment(Environment):
     # Action routing
     # ------------------------------------------------------------------
 
+    def _update_config(self, **updates) -> Optional[str]:
+        """
+        Apply updates to PipelineConfig using the constructor, which runs all
+        Pydantic validators (including model_validators).
+
+        model_copy(update=...) does NOT run validators in Pydantic v2, so
+        invalid combinations (e.g. chunk_overlap >= chunk_size) are silently
+        accepted and later cause crashes when the config is embedded in an
+        observation.  Using the constructor guarantees validation always runs.
+
+        Returns an error string if validation fails, None on success.
+        """
+        try:
+            self._config = PipelineConfig(**{**self._config.model_dump(), **updates})
+            return None
+        except (ValueError, TypeError, ValidationError) as exc:
+            return str(exc)
+
     def _apply_action(self, action: RAGDebugAction) -> Optional[Reward]:
         """
         Apply action to config / overlays.
@@ -308,56 +340,57 @@ class RAGDebugEnvironment(Environment):
 
         if t == ActionType.ADJUST_CHUNK_SIZE:
             value = int(p.get("value", self._config.chunk_size))
-            try:
-                self._config = self._config.model_copy(update={"chunk_size": value})
-            except (ValueError, TypeError) as exc:
-                self._last_action_error = f"Invalid chunk_size {value}: {exc}"
+            err = self._update_config(chunk_size=value)
+            if err:
+                self._last_action_error = f"Invalid chunk_size {value}: {err}"
             self._recompute_S_faulted()
 
         elif t == ActionType.ADJUST_CHUNK_OVERLAP:
             value = int(p.get("value", self._config.chunk_overlap))
-            try:
-                self._config = self._config.model_copy(update={"chunk_overlap": value})
-            except (ValueError, TypeError) as exc:
-                self._last_action_error = f"Invalid chunk_overlap {value}: {exc}"
-            # Overlap has no direct matrix effect; no recompute needed
+            err = self._update_config(chunk_overlap=value)
+            if err:
+                self._last_action_error = f"Invalid chunk_overlap {value}: {err}"
+            # Recompute required: fault_math.apply_faults() uses chunk_overlap to
+            # modulate CHUNK_TOO_SMALL noise sigma (higher overlap stabilises boundary
+            # embeddings, reducing noise severity). Without recompute, the config change
+            # has no visible effect on retrieval scores until another action triggers it.
+            self._recompute_S_faulted()
 
         elif t == ActionType.ADJUST_THRESHOLD:
             value = float(p.get("value", self._config.similarity_threshold))
-            try:
-                self._config = self._config.model_copy(update={"similarity_threshold": value})
-            except (ValueError, TypeError) as exc:
-                self._last_action_error = f"Invalid threshold {value}: {exc}"
+            err = self._update_config(similarity_threshold=value)
+            if err:
+                self._last_action_error = f"Invalid threshold {value}: {err}"
             # Threshold is applied in retrieval simulation; no matrix recompute
 
         elif t == ActionType.ADJUST_TOP_K:
             value = int(p.get("value", self._config.top_k))
-            try:
-                self._config = self._config.model_copy(update={"top_k": value})
-            except (ValueError, TypeError) as exc:
-                self._last_action_error = f"Invalid top_k {value}: {exc}"
+            err = self._update_config(top_k=value)
+            if err:
+                self._last_action_error = f"Invalid top_k {value}: {err}"
 
         elif t == ActionType.ADJUST_CONTEXT_LIMIT:
             value = int(p.get("value", self._config.context_window_limit))
-            try:
-                self._config = self._config.model_copy(update={"context_window_limit": value})
-            except (ValueError, TypeError) as exc:
-                self._last_action_error = f"Invalid context_limit {value}: {exc}"
+            err = self._update_config(context_window_limit=value)
+            if err:
+                self._last_action_error = f"Invalid context_limit {value}: {err}"
             self._recompute_S_faulted()
 
         elif t == ActionType.SWAP_EMBEDDING_MODEL:
             model_str = str(p.get("model", self._active_model.value))
             try:
                 new_model = EmbeddingModel(model_str)
-                self._active_model = new_model
-                self._config = self._config.model_copy(update={"embedding_model": new_model})
             except (ValueError, KeyError) as exc:
                 self._last_action_error = f"Invalid embedding model '{model_str}': {exc}"
+                new_model = None
+            if new_model is not None:
+                self._active_model = new_model
+                self._update_config(embedding_model=new_model)
             self._recompute_S_faulted()
 
         elif t == ActionType.TOGGLE_RERANKING:
             enabled = bool(p.get("enabled", not self._config.use_reranking))
-            self._config = self._config.model_copy(update={"use_reranking": enabled})
+            self._update_config(use_reranking=enabled)
             self._recompute_S_faulted()
 
         elif t == ActionType.REWRITE_QUERY:
@@ -428,6 +461,7 @@ class RAGDebugEnvironment(Environment):
             config_chunk_size=self._config.chunk_size,
             config_context_limit=self._config.context_window_limit,
             config_use_reranking=self._config.use_reranking,
+            config_chunk_overlap=self._config.chunk_overlap,
             noise=self._noise,
             dupe_ids=self._dupe_ids,
             rewrite_boosts=self._rewrite_boosts,
@@ -530,33 +564,43 @@ class RAGDebugEnvironment(Environment):
         new: QualityMetrics,
         action: RAGDebugAction,
     ) -> Reward:
-        """Compute a dense, midpoint-centered reward in [0.0, 1.0].
+        """Compute a progress-based reward in [0.0, 1.0].
 
-        Design: 0.5 = neutral (no change), >0.5 = improvement, <0.5 = degradation.
-        All components are bounded and deterministic.
+        Design: reward reflects the absolute quality level (progress toward the
+        success threshold) PLUS a small bonus for the direction of change.
+
+        This ensures the full [0.0, ~0.89] range is utilised for non-terminal
+        steps, giving the RL agent a strong per-step learning signal:
+          - Terrible state, no improvement → reward ≈ 0.09
+          - Mid quality, no change        → reward ≈ 0.42
+          - At success threshold, no change → reward ≈ 0.64
+          - Large improvement step        → reward up to  0.89
+          - Large regression + penalties  → reward clipped to 0.00
+
+        Terminal rewards (SUBMIT) remain in their own zone [0.7, 1.0] for
+        success and [0.0, 0.15] for failure, as before.
         """
         components: Dict[str, float] = {}
         n_queries = max(len(self._episode_queries), 1)
 
-        # --- Improvement signals (bidirectional: positive = better) ---
+        # --- Progress reward: absolute quality level signal ---
+        # Maps quality_score to [0.10, 0.65] proportional to how close we are
+        # to the task's success threshold.  Spans the reward range across the
+        # full episode regardless of per-step delta magnitude.
+        quality_target = 0.75 if self._task_id in (1, 2) else 0.70
+        current_quality = self._quality_score(new)
+        progress = min(1.0, current_quality / quality_target)
+        components["progress_reward"] = 0.10 + 0.55 * progress
+
+        # --- Delta bonus: immediate direction feedback ---
+        # Distinguishes an improving step from a no-op at the same quality level.
+        # Multiplied delta capped at ±0.15 so a single step never dominates.
         if prev is not None:
-            # Coverage delta: primary quality signal (weight 0.20)
-            cov_delta = new.mean_coverage - prev.mean_coverage
-            components["coverage_delta"] = float(np.clip(cov_delta, -1.0, 1.0)) * 0.20
-
-            # Precision delta: secondary quality signal (weight 0.10)
-            prec_delta = new.mean_precision - prev.mean_precision
-            components["precision_delta"] = float(np.clip(prec_delta, -1.0, 1.0)) * 0.10
-
-            # Multi-hop coverage delta: Task 3 signal (weight 0.08)
-            if new.multi_hop_coverage is not None and prev.multi_hop_coverage is not None:
-                mh_delta = new.multi_hop_coverage - prev.multi_hop_coverage
-                components["multi_hop_delta"] = float(np.clip(mh_delta, -1.0, 1.0)) * 0.08
-            else:
-                components["multi_hop_delta"] = 0.0
+            prev_quality = self._quality_score(prev)
+            q_delta = current_quality - prev_quality
+            components["delta_bonus"] = float(np.clip(q_delta * 2.0, -0.15, 0.15))
 
             # Empty retrieval signal: bidirectional (weight 0.06)
-            # Positive when empties decrease, negative when they increase
             empty_change = prev.n_empty_retrievals - new.n_empty_retrievals
             components["empty_retrieval_signal"] = float(np.clip(empty_change / n_queries, -1.0, 1.0)) * 0.06
 
@@ -564,12 +608,11 @@ class RAGDebugEnvironment(Environment):
             overflow_change = prev.n_context_overflows - new.n_context_overflows
             components["overflow_signal"] = float(np.clip(overflow_change / n_queries, -1.0, 1.0)) * 0.04
         else:
-            components["coverage_delta"] = 0.0
-            components["precision_delta"] = 0.0
-            components["multi_hop_delta"] = 0.0
+            components["delta_bonus"] = 0.0
             components["empty_retrieval_signal"] = 0.0
             components["overflow_signal"] = 0.0
 
+        # --- Efficiency penalties ---
         components["step_cost"] = -0.01
 
         # Redundancy penalty for repeating the same action type consecutively
@@ -578,18 +621,12 @@ class RAGDebugEnvironment(Environment):
         else:
             components["redundancy_penalty"] = 0.0
 
-        # Penalty for newly introduced empty retrievals
-        if prev is not None:
-            new_empties = max(0, new.n_empty_retrievals - prev.n_empty_retrievals)
-            components["empty_retrieval_penalty"] = -0.15 * new_empties
-        else:
-            components["empty_retrieval_penalty"] = 0.0
-
-        # Penalty for invalid action parameters.
+        # Penalty for invalid action parameters
         if self._last_action_error is not None:
             components["invalid_action_penalty"] = -0.05
 
-        raw = 0.5 + sum(components.values())
+        # --- Combine: no fixed base — progress_reward IS the base ---
+        raw = sum(components.values())
         value = float(np.clip(raw, 0.0, 1.0))
         return Reward(value=value, components=components)
 
@@ -610,6 +647,19 @@ class RAGDebugEnvironment(Environment):
                 + 0.25 * metrics.mean_precision
                 + 0.20 * mh_cov
             )
+
+    def _quality_score(self, metrics: QualityMetrics) -> float:
+        """Quality portion of task_score, excluding efficiency. Normalized to [0, 1].
+
+        Uses the same coverage:precision weighting as _compute_task_score so that
+        step rewards are aligned with the terminal success criterion.
+        """
+        if self._task_id in (1, 2):
+            # 0.60 + 0.25 = 0.85 max; normalize to [0, 1]
+            return (0.60 * metrics.mean_coverage + 0.25 * metrics.mean_precision) / 0.85
+        else:  # task 3: includes multi-hop coverage, already sums to 1.0
+            mh_cov = metrics.multi_hop_coverage or 0.0
+            return 0.55 * metrics.mean_coverage + 0.25 * metrics.mean_precision + 0.20 * mh_cov
 
     def _check_success(self, metrics: QualityMetrics, task_score: float) -> bool:
         if self._task_id == 1:
@@ -661,6 +711,41 @@ class RAGDebugEnvironment(Environment):
             sampled = [all_queries[i] for i in indices]
 
         return sampled
+
+    def _calibrate_initial_difficulty(self, rng: np.random.Generator) -> None:
+        """Nudge overly-strong reset states toward improvable starting points."""
+        self._recompute_S_faulted()
+        results = self._simulate_retrieval()
+        metrics = self._compute_metrics(results)
+
+        if not results:
+            return
+
+        full_cov_rate = float(
+            np.mean([1.0 if r.coverage_score >= 0.999 else 0.0 for r in results])
+        )
+        cov_caps = {1: 0.60, 2: 0.52, 3: 0.48}
+        full_cov_caps = {1: 0.50, 2: 0.45, 3: 0.40}
+
+        cov_cap = cov_caps.get(self._task_id, 0.60)
+        full_cov_cap = full_cov_caps.get(self._task_id, 0.50)
+        if metrics.mean_coverage <= cov_cap and full_cov_rate <= full_cov_cap:
+            return
+
+        updates: Dict[str, Any] = {}
+        if self._config.top_k > 3:
+            shrink = int(rng.integers(1, 3))
+            updates["top_k"] = max(3, self._config.top_k - shrink)
+
+        fault_types_active = {f.fault_type for f in self._injected_faults}
+        if FaultType.THRESHOLD_TOO_HIGH not in fault_types_active:
+            bump = float(rng.uniform(0.05, 0.12))
+            updates["similarity_threshold"] = min(
+                0.75, self._config.similarity_threshold + bump
+            )
+
+        if updates:
+            self._config = self._config.model_copy(update=updates)
 
     # ------------------------------------------------------------------
     # Diagnostic hints

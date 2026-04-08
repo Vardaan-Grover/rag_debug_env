@@ -54,14 +54,14 @@ API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
-SERVER_URL = os.getenv("SERVER_URL", "http://localhost:8000")
+SERVER_URL = os.getenv("SERVER_URL", "http://localhost:7860")
 
 TASK_ID = int(os.getenv("RAG_DEBUG_TASK", "1"))
 BENCHMARK = os.getenv("RAG_DEBUG_BENCHMARK", "rag_debug_env")
 MAX_STEPS_OVERRIDE = int(os.getenv("RAG_DEBUG_MAX_STEPS", "10"))
 
 TEMPERATURE = 0.2
-MAX_TOKENS = 220
+MAX_TOKENS = 512
 
 W = 64  # display width for visual output
 
@@ -70,7 +70,12 @@ SYSTEM_PROMPT = textwrap.dedent(
     You are an expert RAG retrieval debugger. Your task is to diagnose and fix a broken RAG pipeline by analyzing retrieval metrics and adjusting configuration parameters.
 
     ## Output Format
-    Output exactly one JSON object on one line:
+    Reason step-by-step before acting:
+    1. **Diagnosis**: What do the current metrics reveal? What fault(s) do you suspect?
+    2. **History**: What have your previous actions changed? What hypotheses are confirmed or ruled out?
+    3. **Plan**: What to try next and why?
+
+    Then output exactly one JSON object on its own line:
     {"action_type":"<type>","params":{...}}
 
     ## Available Actions & Parameters
@@ -112,13 +117,29 @@ SYSTEM_PROMPT = textwrap.dedent(
        - Primary cause: duplicate flooding or threshold too low
        - Fix: enable reranking, or raise threshold slightly
 
+    ## Task Score (determines success/failure)
+    Tasks 1 & 2: score = 0.60*coverage + 0.25*precision + 0.15*(1 - steps/max_steps)
+      Success requires score >= 0.75. Fewer steps = higher efficiency bonus.
+    Task 3: score = 0.55*coverage + 0.25*precision + 0.20*multi_hop_coverage
+      Success requires score >= 0.70 AND multi_hop_coverage > 0.60
+
     ## Strategy
-    - Act efficiently: each step costs reward. Diagnose first, then fix.
-    - Fix the most impactful issue first (usually empty retrievals or wrong model).
-    - Enable reranking early if precision is low — it helps with multiple fault types.
-    - For Task 3 (medical): always check if embedding model needs to be swapped to "medical".
-    - Submit when: mean_coverage >= 0.70, no empty retrievals, and metrics are stable.
-    - Do NOT submit if coverage is still below 0.65 or there are empty retrievals.
+    - Act efficiently: each step reduces your efficiency bonus. Diagnose fast, fix precisely.
+    - Fix the most impactful issue first (usually the config anomaly, empty retrievals, or wrong model).
+    - Enable reranking if precision is low — it helps with multiple fault types.
+    - For Tasks 1 & 2, avoid swapping embedding model unless there is very strong evidence of model mismatch.
+    - If coverage is high (>=0.85) but precision is low (<0.35), stop increasing top_k; prioritize reranking and raising threshold.
+    - For Task 3 (medical): always swap embedding model to "medical".
+    - For Tasks 1 & 2, submit only when score >= 0.77, coverage >= 0.80, precision >= 0.40, and empty retrievals = 0.
+    - For Task 3, submit only when score >= 0.78 and multi_hop_coverage > 0.60.
+
+    ## Cross-Step Reasoning
+    You will see your previous reasoning and actions in the conversation history.
+    Use this to track hypotheses across steps:
+    - If an action had no effect, the root cause is likely elsewhere — say so explicitly.
+    - If lowering threshold didn't fix empty retrievals, suspect wrong embedding model.
+    - If increasing top_k didn't improve coverage, the scores themselves are wrong (model mismatch).
+    - Never repeat an action that produced no improvement. Build on what you've learned.
     """
 ).strip()
 
@@ -320,11 +341,15 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 # ─── Agent logic ────────────────────────────────────────────────────────────────
 
-def _format_observation(obs: RAGDebugObservation, history: List[str]) -> str:
+def _format_observation(obs: RAGDebugObservation, last_reward: Optional[float] = None) -> str:
     cfg = obs.pipeline_config
     m = obs.metrics
 
-    lines = [
+    lines = []
+    if last_reward is not None:
+        lines.append(f"Previous action reward: {last_reward:+.3f}")
+        lines.append("")
+    lines += [
         f"Task ID: {obs.task_id}",
         f"Task: {obs.task_description}",
         f"Step: {obs.steps_taken}/{obs.max_steps}",
@@ -378,11 +403,17 @@ def _format_observation(obs: RAGDebugObservation, history: List[str]) -> str:
     if err:
         lines.append(f"\n## Last Action Error: {err}")
 
-    if history:
-        lines.append("\n## Recent Actions")
-        lines.extend(f"  {item}" for item in history[-5:])
+    # Estimated task score so the agent knows whether to submit
+    efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
+    if obs.task_id in (1, 2):
+        est_score = 0.60 * m.mean_coverage + 0.25 * m.mean_precision + 0.15 * efficiency
+        lines.append(f"\n## Estimated Task Score: {est_score:.3f} (need >= 0.75, aim for >= 0.78)")
+    else:
+        mh = m.multi_hop_coverage or 0.0
+        est_score = 0.55 * m.mean_coverage + 0.25 * m.mean_precision + 0.20 * mh
+        lines.append(f"\n## Estimated Task Score: {est_score:.3f} (need >= 0.70, multi_hop > 0.60)")
 
-    lines.append("\nReturn exactly one JSON action.")
+    lines.append("\nAnalyze the situation and return your reasoning followed by a JSON action.")
     return "\n".join(lines)
 
 
@@ -393,10 +424,206 @@ def _extract_last_action_error(obs: RAGDebugObservation) -> Optional[str]:
     return str(err)
 
 
+def _estimate_task_score(obs: RAGDebugObservation) -> float:
+    m = obs.metrics
+    efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
+    if obs.task_id in (1, 2):
+        score = 0.60 * m.mean_coverage + 0.25 * m.mean_precision + 0.15 * efficiency
+    else:
+        mh = m.multi_hop_coverage or 0.0
+        score = 0.55 * m.mean_coverage + 0.25 * m.mean_precision + 0.20 * mh
+    return min(max(score, 0.0), 1.0)
+
+
+def _submit_ready(obs: RAGDebugObservation) -> bool:
+    m = obs.metrics
+    est_score = _estimate_task_score(obs)
+    if obs.task_id in (1, 2):
+        return (
+            est_score >= 0.77
+            and m.mean_coverage >= 0.80
+            and m.mean_precision >= 0.40
+            and m.n_empty_retrievals == 0
+        )
+    mh = m.multi_hop_coverage or 0.0
+    return est_score >= 0.78 and mh > 0.60 and m.n_empty_retrievals == 0
+
+
+def _precision_recovery_action(obs: RAGDebugObservation) -> RAGDebugAction:
+    """Recover precision after high-coverage / low-precision plateaus."""
+    metrics = obs.metrics
+    cfg = obs.pipeline_config
+
+    if not cfg.use_reranking:
+        return RAGDebugAction(
+            action_type=ActionType.TOGGLE_RERANKING,
+            params={"enabled": True},
+        )
+
+    if cfg.similarity_threshold < 0.62:
+        bump = 0.12 if metrics.mean_precision < 0.30 else 0.08
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_THRESHOLD,
+            params={"value": round(min(0.65, cfg.similarity_threshold + bump), 2)},
+        )
+
+    if cfg.top_k > 7:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_TOP_K,
+            params={"value": max(5, cfg.top_k - 2)},
+        )
+
+    return RAGDebugAction(
+        action_type=ActionType.ADJUST_THRESHOLD,
+        params={"value": round(min(0.70, cfg.similarity_threshold + 0.05), 2)},
+    )
+
+
+def _task12_policy_action(obs: RAGDebugObservation) -> RAGDebugAction:
+    """Deterministic recovery policy tuned for Tasks 1/2 stability."""
+    metrics = obs.metrics
+    cfg = obs.pipeline_config
+    est_score = _estimate_task_score(obs)
+
+    if _submit_ready(obs):
+        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
+
+    # 1) Empty retrievals are highest-priority blockers.
+    if metrics.n_empty_retrievals > 0:
+        if cfg.similarity_threshold > 0.10:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_THRESHOLD,
+                params={"value": round(max(0.05, cfg.similarity_threshold - 0.10), 2)},
+            )
+        if cfg.top_k < 18:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_TOP_K,
+                params={"value": min(20, cfg.top_k + 4)},
+            )
+
+    # 2) Context overflow must be resolved before precision can stabilize.
+    if metrics.n_context_overflows > 0:
+        if cfg.context_window_limit < 16384:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_CONTEXT_LIMIT,
+                params={"value": min(16384, cfg.context_window_limit * 2)},
+            )
+        if cfg.top_k > 8:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_TOP_K,
+                params={"value": max(6, cfg.top_k - 2)},
+            )
+
+    # 3) Low coverage recovery.
+    if metrics.mean_coverage < 0.75:
+        if cfg.top_k < 16:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_TOP_K,
+                params={"value": min(18, cfg.top_k + 3)},
+            )
+        if cfg.similarity_threshold > 0.12:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_THRESHOLD,
+                params={"value": round(max(0.05, cfg.similarity_threshold - 0.08), 2)},
+            )
+        if cfg.chunk_size > 384:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_CHUNK_SIZE,
+                params={"value": max(256, int(cfg.chunk_size * 0.75))},
+            )
+
+    # 4) High coverage but low precision plateau.
+    if metrics.mean_coverage >= 0.80 and metrics.mean_precision < 0.40:
+        return _precision_recovery_action(obs)
+
+    # 5) If close to threshold and end of budget, submit to reduce variance.
+    if (
+        obs.steps_taken >= obs.max_steps - 2
+        and est_score >= 0.73
+        and metrics.n_empty_retrievals == 0
+        and metrics.mean_coverage >= 0.75
+    ):
+        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
+
+    # 6) Generic cleanup before submit readiness.
+    if not cfg.use_reranking and metrics.mean_precision < 0.45:
+        return RAGDebugAction(
+            action_type=ActionType.TOGGLE_RERANKING,
+            params={"enabled": True},
+        )
+    if metrics.mean_precision < 0.45 and cfg.similarity_threshold < 0.60:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_THRESHOLD,
+            params={"value": round(min(0.65, cfg.similarity_threshold + 0.08), 2)},
+        )
+
+    return RAGDebugAction(
+        action_type=ActionType.ADJUST_TOP_K,
+        params={"value": min(16, cfg.top_k + 1)},
+    )
+
+
+def _stabilize_action(obs: RAGDebugObservation, action: RAGDebugAction) -> RAGDebugAction:
+    """Apply conservative policy guardrails to reduce baseline variance."""
+    metrics = obs.metrics
+    cfg = obs.pipeline_config
+
+    # Never allow premature submit; use deterministic fallback policy instead.
+    if action.action_type == ActionType.SUBMIT and not _submit_ready(obs):
+        return _heuristic_action(obs)
+
+    if obs.task_id in (1, 2):
+        planner_action = _task12_policy_action(obs)
+
+        # Tasks 1/2 are config faults; model swaps are usually wasted steps.
+        if action.action_type in (
+            ActionType.SWAP_EMBEDDING_MODEL,
+            ActionType.REWRITE_QUERY,
+            ActionType.ADJUST_CHUNK_OVERLAP,
+        ):
+            return planner_action
+
+        # In high-coverage / low-precision states, avoid actions that commonly worsen precision.
+        if metrics.mean_coverage >= 0.85 and metrics.mean_precision < 0.35:
+            if action.action_type == ActionType.ADJUST_TOP_K:
+                try:
+                    requested_top_k = int(action.params.get("value", cfg.top_k))
+                except Exception:
+                    requested_top_k = cfg.top_k
+                if requested_top_k >= cfg.top_k:
+                    return planner_action
+
+            if action.action_type == ActionType.ADJUST_THRESHOLD:
+                try:
+                    requested_threshold = float(action.params.get("value", cfg.similarity_threshold))
+                except Exception:
+                    requested_threshold = cfg.similarity_threshold
+                if requested_threshold < cfg.similarity_threshold:
+                    return planner_action
+
+        # When coverage is clearly low, prefer planner's deterministic recovery path.
+        if metrics.mean_coverage < 0.50 and action.action_type in (
+            ActionType.ADJUST_THRESHOLD,
+            ActionType.ADJUST_TOP_K,
+            ActionType.ADJUST_CHUNK_SIZE,
+            ActionType.TOGGLE_RERANKING,
+        ):
+            return planner_action
+
+        # If we're at the end of the budget and already good enough, submit deterministically.
+        if obs.steps_taken >= obs.max_steps - 1 and _submit_ready(obs):
+            return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
+
+    return action
+
+
 def _heuristic_action(obs: RAGDebugObservation) -> RAGDebugAction:
     """Smart heuristic fallback when LLM parsing fails."""
     metrics = obs.metrics
     cfg = obs.pipeline_config
+
+    if obs.task_id in (1, 2):
+        return _task12_policy_action(obs)
 
     # Priority 1: Fix empty retrievals (most impactful)
     if metrics.n_empty_retrievals > 0:
@@ -442,49 +669,69 @@ def _heuristic_action(obs: RAGDebugObservation) -> RAGDebugAction:
                 params={"value": max(5, cfg.top_k - 3)},
             )
 
-    # Priority 5: Low coverage → increase top_k
+    # Priority 5: Tasks 1/2 precision recovery once coverage is already strong.
+    if obs.task_id in (1, 2) and metrics.mean_coverage >= 0.82 and metrics.mean_precision < 0.40:
+        return _precision_recovery_action(obs)
+
+    # Priority 6: High coverage but low precision → raise threshold to filter irrelevant chunks
+    # This handles the top_k_too_small recovery: after increasing top_k to fix coverage,
+    # the threshold is too permissive and lets in too many irrelevant chunks.
+    if metrics.mean_coverage > 0.85 and metrics.mean_precision < 0.35:
+        new_threshold = round(min(0.70, cfg.similarity_threshold + 0.12), 2)
+        if new_threshold > cfg.similarity_threshold:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_THRESHOLD,
+                params={"value": new_threshold},
+            )
+
+    # Priority 7: Low coverage → increase top_k
     if metrics.mean_coverage < 0.6 and cfg.top_k < 20:
         return RAGDebugAction(
             action_type=ActionType.ADJUST_TOP_K,
             params={"value": min(30, cfg.top_k + 5)},
         )
 
-    # Priority 6: Enable reranking if precision is poor
+    # Priority 8: Enable reranking if precision is poor
     if metrics.mean_precision < 0.4 and not cfg.use_reranking:
         return RAGDebugAction(
             action_type=ActionType.TOGGLE_RERANKING,
             params={"enabled": True},
         )
 
-    # Priority 7: Chunk size reduction for large chunks
+    # Priority 9: Chunk size reduction for large chunks
     if metrics.mean_coverage < 0.6 and cfg.chunk_size > 384:
         return RAGDebugAction(
             action_type=ActionType.ADJUST_CHUNK_SIZE,
             params={"value": max(256, cfg.chunk_size // 2)},
         )
 
-    # Priority 8: Reduce chunk size if it's large and coverage is low
+    # Priority 10: Reduce chunk size if it's large and coverage is low
     if metrics.mean_coverage < 0.7 and cfg.chunk_size > 300:
         return RAGDebugAction(
             action_type=ActionType.ADJUST_CHUNK_SIZE,
             params={"value": max(256, cfg.chunk_size // 2)},
         )
 
-    # Priority 9: Lower threshold further if coverage is still not great
+    # Priority 11: Lower threshold further if coverage is still not great
     if metrics.mean_coverage < 0.7 and cfg.similarity_threshold > 0.10:
         return RAGDebugAction(
             action_type=ActionType.ADJUST_THRESHOLD,
             params={"value": round(max(0.05, cfg.similarity_threshold - 0.10), 2)},
         )
 
-    # Priority 10: Submit only when metrics are genuinely good
-    if (metrics.mean_coverage >= 0.70
-            and metrics.mean_precision >= 0.15
-            and metrics.n_empty_retrievals == 0):
+    # Priority 12: Submit once deterministic readiness checks pass.
+    if _submit_ready(obs):
         return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
 
-    # Fallback: increase top_k one more time
-    if cfg.top_k < 30:
+    # Fallback: if coverage is OK but precision still bad, keep raising threshold
+    if metrics.mean_precision < 0.5 and cfg.similarity_threshold < 0.65:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_THRESHOLD,
+            params={"value": round(min(0.65, cfg.similarity_threshold + 0.10), 2)},
+        )
+
+    # Fallback: increase top_k if coverage is still low
+    if metrics.mean_coverage < 0.85 and cfg.top_k < 30:
         return RAGDebugAction(
             action_type=ActionType.ADJUST_TOP_K,
             params={"value": min(30, cfg.top_k + 5)},
@@ -496,16 +743,35 @@ def _heuristic_action(obs: RAGDebugObservation) -> RAGDebugAction:
 
 def _parse_action_json(raw_text: str, obs: RAGDebugObservation) -> Tuple[RAGDebugAction, str]:
     text = raw_text.strip()
-    if text.startswith("```"):
-        text = "\n".join(line for line in text.splitlines() if not line.startswith("```"))
+    # Strip markdown code fences
+    if "```" in text:
+        text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
 
-    try:
-        data = json.loads(text)
-        action_type = ActionType(data["action_type"])
-        params = data.get("params", {})
-        action = RAGDebugAction(action_type=action_type, params=params)
-    except Exception:
-        action = _heuristic_action(obs)
+    action = None
+    # Search lines bottom-up for a JSON action (reasoning comes before the JSON)
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line.startswith("{") and "action_type" in line:
+            try:
+                data = json.loads(line)
+                action = RAGDebugAction(
+                    action_type=ActionType(data["action_type"]),
+                    params=data.get("params", {}),
+                )
+                break
+            except Exception:
+                continue
+
+    # Fallback: try parsing the full text as JSON
+    if action is None:
+        try:
+            data = json.loads(text)
+            action = RAGDebugAction(
+                action_type=ActionType(data["action_type"]),
+                params=data.get("params", {}),
+            )
+        except Exception:
+            action = _heuristic_action(obs)
 
     action_str = json.dumps(
         {"action_type": action.action_type.value, "params": action.params},
@@ -540,31 +806,42 @@ async def _connect_env() -> RAGDebugEnv:
     return RAGDebugEnv(base_url=SERVER_URL)
 
 
-async def _next_action(client: OpenAI, obs: RAGDebugObservation, history: List[str]) -> Tuple[RAGDebugAction, str]:
-    prompt = _format_observation(obs, history)
+async def _next_action(
+    client: OpenAI,
+    obs: RAGDebugObservation,
+    messages: List[dict],
+    last_reward: Optional[float] = None,
+) -> Tuple[RAGDebugAction, str]:
+    prompt = _format_observation(obs, last_reward=last_reward)
+    messages.append({"role": "user", "content": prompt})
     last_exc = None
     for attempt in range(3):
         try:
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
+                messages=messages,
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
             )
             raw = completion.choices[0].message.content or ""
-            return _parse_action_json(raw, obs)
+            messages.append({"role": "assistant", "content": raw})
+            parsed_action, _ = _parse_action_json(raw, obs)
+            action = _stabilize_action(obs, parsed_action)
+            action_str = json.dumps(
+                {"action_type": action.action_type.value, "params": action.params},
+                separators=(",", ":"),
+            )
+            return action, action_str
         except Exception as exc:
             last_exc = exc
             if attempt < 2:
-                await asyncio.sleep(2 ** attempt)  # exponential backoff: 1s, 2s
+                await asyncio.sleep(2 ** attempt)
                 continue
     # All retries exhausted — fall back to heuristic agent
     _rich(f"  [LLM failed after 3 attempts: {last_exc}]")
-    action = _heuristic_action(obs)
+    action = _stabilize_action(obs, _heuristic_action(obs))
     action_str = json.dumps({"action_type": action.action_type.value, "params": action.params}, separators=(",", ":"))
+    messages.append({"role": "assistant", "content": action_str})
     return action, action_str
 
 
@@ -574,7 +851,7 @@ async def main() -> None:
     task_name = f"task_{TASK_ID}"
 
     rewards: List[float] = []
-    history: List[str] = []
+    messages: List[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
     steps_taken = 0
     score = 0.0
     success = False
@@ -609,7 +886,8 @@ async def main() -> None:
             if result.done:
                 break
 
-            action, action_str = await _next_action(llm_client, obs, history)
+            last_reward = rewards[-1] if rewards else None
+            action, action_str = await _next_action(llm_client, obs, messages, last_reward=last_reward)
 
             try:
                 result = await env.step(action)
@@ -631,7 +909,6 @@ async def main() -> None:
             prev_cov = obs.metrics.mean_coverage
             prev_prec = obs.metrics.mean_precision
 
-            history.append(f"{action_str} -> {reward:+.2f}")
             if done:
                 break
 
