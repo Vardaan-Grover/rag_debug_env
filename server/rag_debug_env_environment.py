@@ -30,14 +30,13 @@ from uuid import uuid4
 
 import numpy as np
 from openenv.core.env_server.interfaces import Environment
-from openenv.core.env_server.types import State
+from openenv.core.env_server.types import EnvironmentMetadata, State
 
 from server.constants import (
     _TASK_DOMAIN,
     _TASK_DESCRIPTION,
     _N_EPISODE_QUERIES,
     _MAX_STEPS,
-    _SUCCESS_COVERAGE,
     _MODEL_FILE,
     _TASK1_FAULT_SETS,
     _TASK2_FAULT_SETS,
@@ -58,6 +57,7 @@ from models import (
     QualityMetrics,
     CorpusStats,
     Domain,
+    Reward,
 )
 
 class RAGDebugEnvironment(Environment):
@@ -237,19 +237,19 @@ class RAGDebugEnvironment(Environment):
         self._state.step_count += 1
         prev_metrics = self._prev_metrics
 
-        # Route action
-        reward_value = self._apply_action(action)
+        # Route action (returns Reward for SUBMIT, None otherwise)
+        reward_obj = self._apply_action(action)
 
         # Recompute retrieval results and metrics
         new_results = self._simulate_retrieval()
         new_metrics = self._compute_metrics(new_results)
 
-        # Compute reward (if not already set by SUBMIT handler)
-        if reward_value is None:
-            reward_value = self._compute_reward(prev_metrics, new_metrics, action)
+        # Compute reward if not already set by SUBMIT handler
+        if reward_obj is None:
+            reward_obj = self._compute_reward(prev_metrics, new_metrics, action)
 
         self._internal_state.action_history.append(action)
-        self._internal_state.reward_history.append(reward_value)
+        self._internal_state.reward_history.append(reward_obj.value)
 
         self._prev_metrics = new_metrics
         self._prev_action_type = action.action_type
@@ -258,20 +258,38 @@ class RAGDebugEnvironment(Environment):
         if self._state.step_count >= _MAX_STEPS and not self._done:
             self._done = True
 
-        return self._build_observation(new_results, reward=reward_value)
+        return self._build_observation(new_results, reward=reward_obj.value)
 
     @property
     def state(self) -> State:
         return self._state
 
+    def get_metadata(self) -> EnvironmentMetadata:
+        readme_path = Path(__file__).parent.parent / "README.md"
+        readme_content: Optional[str] = None
+        if readme_path.exists():
+            raw = readme_path.read_text(encoding="utf-8")
+            # Strip YAML frontmatter (--- ... ---) so the UI renders clean Markdown
+            if raw.startswith("---"):
+                end = raw.find("---", 3)
+                if end != -1:
+                    raw = raw[end + 3:].lstrip("\n")
+            readme_content = raw
+        return EnvironmentMetadata(
+            name="RAGDebugEnv",
+            description="Debug broken RAG pipelines by tuning config and swapping embedding models.",
+            readme_content=readme_content,
+            version="1.0.0",
+        )
+
     # ------------------------------------------------------------------
     # Action routing
     # ------------------------------------------------------------------
 
-    def _apply_action(self, action: RAGDebugAction) -> Optional[float]:
+    def _apply_action(self, action: RAGDebugAction) -> Optional[Reward]:
         """
         Apply action to config / overlays.
-        Returns override reward if the action is SUBMIT, else None.
+        Returns a Reward if the action is SUBMIT, else None.
         """
         t = action.action_type
         p = action.params
@@ -344,23 +362,28 @@ class RAGDebugEnvironment(Environment):
             self._recompute_S_faulted()
 
         elif t == ActionType.SUBMIT:
-            # Compute final metrics (already computed above, passed as prev_metrics here)
-            # We'll use self._prev_metrics because _apply_action is called before metrics update
-            # But at SUBMIT time we want the *current* state, so do a retrieval now
             results = self._simulate_retrieval()
             metrics = self._compute_metrics(results)
             task_score = self._compute_task_score(metrics)
-            threshold = _SUCCESS_COVERAGE[self._task_id]
             self._done = True
 
-            # Check task-specific success condition
             success = self._check_success(metrics, task_score)
             if success:
-                return 2.0  # terminal_bonus
+                # Success reward: 0.7–1.0, scaled by quality of solution
+                terminal_value = float(np.clip(0.7 + 0.3 * task_score, 0.7, 1.0))
+                return Reward(
+                    value=terminal_value,
+                    components={"terminal_success": terminal_value},
+                )
             else:
-                return -0.50  # premature_submit_penalty
+                # Failure reward: 0.0–0.2, partial credit for quality achieved
+                terminal_value = float(np.clip(0.2 * task_score, 0.0, 0.2))
+                return Reward(
+                    value=terminal_value,
+                    components={"terminal_failure": terminal_value},
+                )
 
-        return None  # signal caller to compute reward normally
+        return None  # signal caller to compute reward via _compute_reward
 
     # ------------------------------------------------------------------
     # Fault math
@@ -498,32 +521,61 @@ class RAGDebugEnvironment(Environment):
         prev: Optional[QualityMetrics],
         new: QualityMetrics,
         action: RAGDebugAction,
-    ) -> float:
-        components: Dict[str, float] = {}
+    ) -> Reward:
+        """Compute a dense, midpoint-centered reward in [0.0, 1.0].
 
+        Design: 0.5 = neutral (no change), >0.5 = improvement, <0.5 = degradation.
+        All components are bounded and deterministic.
+        """
+        components: Dict[str, float] = {}
+        n_queries = max(len(self._episode_queries), 1)
+
+        # --- Improvement signals (bidirectional: positive = better) ---
         if prev is not None:
-            components["coverage_delta"] = (new.mean_coverage - prev.mean_coverage) * 0.6
-            components["precision_delta"] = (new.mean_precision - prev.mean_precision) * 0.3
+            # Coverage delta: primary quality signal (weight 0.20)
+            cov_delta = new.mean_coverage - prev.mean_coverage
+            components["coverage_delta"] = float(np.clip(cov_delta, -1.0, 1.0)) * 0.20
+
+            # Precision delta: secondary quality signal (weight 0.10)
+            prec_delta = new.mean_precision - prev.mean_precision
+            components["precision_delta"] = float(np.clip(prec_delta, -1.0, 1.0)) * 0.10
+
+            # Multi-hop coverage delta: Task 3 signal (weight 0.08)
+            if new.multi_hop_coverage is not None and prev.multi_hop_coverage is not None:
+                mh_delta = new.multi_hop_coverage - prev.multi_hop_coverage
+                components["multi_hop_delta"] = float(np.clip(mh_delta, -1.0, 1.0)) * 0.08
+            else:
+                components["multi_hop_delta"] = 0.0
+
+            # Empty retrieval signal: bidirectional (weight 0.06)
+            # Positive when empties decrease, negative when they increase
+            empty_change = prev.n_empty_retrievals - new.n_empty_retrievals
+            components["empty_retrieval_signal"] = float(np.clip(empty_change / n_queries, -1.0, 1.0)) * 0.06
+
+            # Context overflow signal: bidirectional (weight 0.04)
+            overflow_change = prev.n_context_overflows - new.n_context_overflows
+            components["overflow_signal"] = float(np.clip(overflow_change / n_queries, -1.0, 1.0)) * 0.04
         else:
             components["coverage_delta"] = 0.0
             components["precision_delta"] = 0.0
+            components["multi_hop_delta"] = 0.0
+            components["empty_retrieval_signal"] = 0.0
+            components["overflow_signal"] = 0.0
 
-        components["step_cost"] = -0.02
+        # --- Efficiency penalties ---
+        components["step_cost"] = -0.01
 
-        # Redundancy penalty for repeating the same action type
+        # Redundancy penalty for repeating the same action type consecutively
         if self._prev_action_type is not None and action.action_type == self._prev_action_type:
-            components["redundancy_penalty"] = -0.10
+            components["redundancy_penalty"] = -0.04
         else:
             components["redundancy_penalty"] = 0.0
 
-        # Penalty for newly introduced empty retrievals
-        if prev is not None:
-            new_empties = max(0, new.n_empty_retrievals - prev.n_empty_retrievals)
-            components["empty_retrieval_penalty"] = -0.15 * new_empties
-        else:
-            components["empty_retrieval_penalty"] = 0.0
+        # --- Combine: 0.5 midpoint + components, clipped to [0, 1] ---
+        raw = 0.5 + sum(components.values())
+        value = float(np.clip(raw, 0.0, 1.0))
 
-        return sum(components.values())
+        return Reward(value=value, components=components)
 
     def _compute_task_score(self, metrics: QualityMetrics) -> float:
         """Compute the scalar task score used for grading."""

@@ -344,21 +344,30 @@ class Reward(BaseModel):
     """
     The reward signal produced by env.step().
 
+    All rewards are in [0.0, 1.0].  0.5 is the neutral midpoint for
+    non-terminal steps; values above 0.5 indicate improvement, below
+    indicate degradation.
+
     value is the scalar used by the RL algorithm.
 
     components is a labelled breakdown for interpretability.  The
     environment always populates this — it aids debugging and makes
     reward shaping decisions auditable.
 
-    Component breakdown
-    -------------------
-    coverage_delta           Δmean_coverage x 0.6
-    precision_delta          Δmean_precision x 0.3
-    step_cost                Fixed -0.02 per step (efficiency pressure)
-    redundancy_penalty       -0.1 if same action taken twice consecutively
-    empty_retrieval_penalty  -0.15 per new empty retrieval introduced
-    terminal_bonus           +2.0 on successful SUBMIT
-    premature_submit_penalty -0.5 on SUBMIT before success threshold
+    Non-terminal step components (midpoint-centered)
+    -------------------------------------------------
+    coverage_delta          Δmean_coverage clipped to [-1,1], weight 0.20
+    precision_delta         Δmean_precision clipped to [-1,1], weight 0.10
+    multi_hop_delta         Δmulti_hop_coverage clipped to [-1,1], weight 0.08 (Task 3 only)
+    empty_retrieval_signal  Bidirectional: rewards fixing empties, penalizes new ones, weight 0.06
+    overflow_signal         Bidirectional: rewards fixing overflows, penalizes new ones, weight 0.04
+    step_cost               Fixed -0.01 per step (efficiency pressure)
+    redundancy_penalty      -0.04 if same action type taken twice consecutively
+
+    Terminal SUBMIT components
+    --------------------------
+    terminal_success        0.7 + 0.3 × task_score → [0.7, 1.0] on successful SUBMIT
+    terminal_failure        0.2 × task_score → [0.0, 0.2] on premature SUBMIT
     """
     value:      float
     components: Dict[str, float] = Field(default_factory=dict)

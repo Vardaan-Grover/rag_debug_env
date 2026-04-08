@@ -11,6 +11,88 @@ app_port: 7860
 
 RAGDebugEnv is an OpenEnv-compatible environment for training and evaluating agents that debug broken retrieval pipelines.
 
+---
+
+## Using the Playground
+
+The playground lets you manually interact with the environment through the web UI — useful for understanding the task before writing an agent.
+
+### Workflow
+
+1. **Reset** — Click **Reset** to start a new episode. A task is randomly assigned (1, 2, or 3). The response shows the initial observation: pipeline config, per-query retrieval results, and quality metrics.
+2. **Step** — Fill in **Action Type** and **Params**, then click **Step** to apply an action to the pipeline. The response shows the updated observation and the reward signal.
+3. **Get state** — Click **Get state** at any time to inspect the full server-side state, including the injected faults (hidden from the agent during normal operation).
+4. **Repeat** — Keep stepping until `done: true` appears in the response, or until you are ready to submit.
+
+---
+
+### Action Reference
+
+| Action Type | Params (JSON) | Notes |
+|---|---|---|
+| `adjust_chunk_size` | `{"value": 256}` | int, 64–2048 |
+| `adjust_chunk_overlap` | `{"value": 32}` | int, 0–500; must be < chunk\_size |
+| `adjust_threshold` | `{"value": 0.5}` | float, 0.0–1.0 |
+| `adjust_top_k` | `{"value": 15}` | int, 1–50 |
+| `swap_embedding_model` | `{"model": "medical"}` | `"general"` / `"medical"` / `"legal"` / `"code"` |
+| `toggle_reranking` | `{"enabled": true}` | bool |
+| `adjust_context_limit` | `{"value": 8192}` | int, 512–16384 |
+| `rewrite_query` | `{"query_id": 0, "strategy": "expand"}` | strategy: `"expand"` / `"rephrase"` / `"decompose"` |
+| `submit` | `{}` | Ends the episode. Returns a bonus if coverage threshold met. |
+
+Enter **Action Type** as a plain string (e.g. `adjust_threshold`) and **Params** as a JSON object (e.g. `{"value": 0.45}`).
+
+---
+
+### Reading the Observation
+
+After each step the Raw JSON response contains:
+
+```
+pipeline_config    — current knob values (what the agent changed)
+query_results      — per-query: retrieved chunks, coverage score, precision score
+metrics            — mean_coverage, mean_precision, n_empty_retrievals, n_context_overflows
+corpus_stats       — domain, n_chunks, n_queries, has_near_duplicates
+steps_taken / max_steps  — step budget (max 10)
+task_id / task_description — which task is running
+done               — true when the episode has ended
+```
+
+`mean_coverage` is the primary signal. A value below ~0.4 means something is broken. Diagnose from `n_empty_retrievals` and `n_context_overflows` as secondary indicators.
+
+---
+
+### Tasks
+
+| Task | Domain | Difficulty | Success threshold |
+|---|---|---|---|
+| 1 | Software (Python docs) | Easy — 1–2 config faults | mean\_coverage ≥ 0.72 |
+| 2 | Climate (IPCC reports) | Medium — compound faults | mean\_coverage ≥ 0.65 |
+| 3 | Medical (MedRAG textbooks) | Hard — wrong embedding model + multi-hop | mean\_coverage ≥ 0.60 |
+
+The faults injected are hidden in the observation. Use the metrics to infer them, then fix the config. Click **Get state** to reveal faults for debugging or learning.
+
+---
+
+### Example session (Task 1)
+
+```
+Reset
+→ mean_coverage: 0.21, n_empty_retrievals: 3
+  (threshold too high or top-k too small)
+
+Step: adjust_threshold {"value": 0.25}
+→ mean_coverage: 0.54, n_empty_retrievals: 0
+
+Step: adjust_top_k {"value": 20}
+→ mean_coverage: 0.76
+
+Step: submit {}
+→ done: true, reward: 0.91 (terminal success)
+```
+
+---
+
 The environment simulates retrieval behavior with precomputed similarity matrices so each step is fast, while still exposing realistic debugging actions such as threshold tuning, top-k tuning, embedding model swaps, reranking toggles, and query rewrites.
 
 ## Current Status

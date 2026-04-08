@@ -88,18 +88,23 @@ Values below are sourced from `server/constants.py` and `server/rag_debug_env_en
 
 ## Reward and Scoring
 
+All rewards are in **[0.0, 1.0]**.  Non-terminal steps use 0.5 as the neutral
+midpoint (>0.5 = improvement, <0.5 = degradation).
+
 Dense step reward (`_compute_reward`):
 
-- `coverage_delta = (new.mean_coverage - prev.mean_coverage) * 0.6`
-- `precision_delta = (new.mean_precision - prev.mean_precision) * 0.3`
-- `step_cost = -0.02`
-- `redundancy_penalty = -0.10` for same action type twice in a row
-- `empty_retrieval_penalty = -0.15 * new_empty_retrievals`
+- `coverage_delta`: Δmean_coverage clipped to [-1,1], weight ×0.20
+- `precision_delta`: Δmean_precision clipped to [-1,1], weight ×0.10
+- `multi_hop_delta`: Δmulti_hop_coverage clipped to [-1,1], weight ×0.08 (Task 3 only)
+- `empty_retrieval_signal`: bidirectional, weight ×0.06 (rewards fixing empties too)
+- `overflow_signal`: bidirectional, weight ×0.04 (rewards fixing overflows too)
+- `step_cost = -0.01`
+- `redundancy_penalty = -0.04` for same action type twice in a row
 
-Submit reward override (`_apply_action`):
+Submit reward (`_apply_action`):
 
-- `+2.0` if success condition is met
-- `-0.5` otherwise
+- Success: `0.7 + 0.3 × task_score` → [0.7, 1.0]
+- Failure: `0.2 × task_score` → [0.0, 0.2]
 
 Task score (`_compute_task_score`):
 

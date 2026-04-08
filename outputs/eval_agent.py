@@ -304,7 +304,7 @@ def run_episode(
             final_coverage = obs.metrics.mean_coverage
             final_precision = obs.metrics.mean_precision
             # Infer success from terminal reward
-            success = reward >= 1.5
+            success = reward >= 0.7
             break
 
     outcome = "SUCCESS ✓" if success else "failed ✗"
