@@ -255,7 +255,7 @@ def _show_summary(
     steps: int,
     max_steps: int,
     rewards: List[float],
-    initial_obs: RAGDebugObservation,
+    initial_obs: Optional[RAGDebugObservation],
     final_obs: Optional[RAGDebugObservation],
 ) -> None:
     _rich()
@@ -264,7 +264,7 @@ def _show_summary(
     _rich(f"  RESULT: {result_label}    Score: {score:.3f}    Steps: {steps}/{max_steps}")
     _rich(f"{'═' * W}")
 
-    if final_obs is not None:
+    if final_obs is not None and initial_obs is not None:
         mi = initial_obs.metrics
         mf = final_obs.metrics
 
@@ -855,6 +855,7 @@ async def main() -> None:
     steps_taken = 0
     score = 0.0
     success = False
+    fatal_error: Optional[str] = None
 
     env: Optional[RAGDebugEnv] = None
     obs: Optional[RAGDebugObservation] = None
@@ -916,6 +917,17 @@ async def main() -> None:
             score = _compute_score(obs)
             success = _compute_success(obs, score)
 
+    except Exception as exc:
+        # Never let runtime faults bubble out as a non-zero exit code in evaluator mode.
+        fatal_error = _one_line(str(exc))
+        _rich(f"  [FATAL] {fatal_error}")
+        if obs is not None:
+            score = _compute_score(obs)
+            success = _compute_success(obs, score)
+        else:
+            score = 0.0
+            success = False
+
     finally:
         if env is not None:
             try:
@@ -925,15 +937,21 @@ async def main() -> None:
 
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
-        _show_summary(
-            success=success,
-            score=score,
-            steps=steps_taken,
-            max_steps=max_steps,
-            rewards=rewards,
-            initial_obs=initial_obs,
-            final_obs=obs,
-        )
+        try:
+            _show_summary(
+                success=success,
+                score=score,
+                steps=steps_taken,
+                max_steps=max_steps,
+                rewards=rewards,
+                initial_obs=initial_obs,
+                final_obs=obs,
+            )
+        except Exception as summary_exc:
+            _rich(f"  [SUMMARY ERROR] {_one_line(str(summary_exc))}")
+
+        if fatal_error:
+            _rich(f"  [END ERROR] {fatal_error}")
 
 
 if __name__ == "__main__":
