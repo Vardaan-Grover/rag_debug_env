@@ -14,6 +14,8 @@ verify.py) and scaled here.
 
 from __future__ import annotations
 
+from typing import Dict, Optional, Set, Tuple
+
 import numpy as np
 from scipy.ndimage import uniform_filter1d
 
@@ -22,13 +24,13 @@ from models import FaultType
 
 def apply_faults(
     S: np.ndarray,
-    fault_types: set,
+    fault_types: Set[FaultType],
     config_chunk_size: int,
     config_context_limit: int,
     config_use_reranking: bool,
-    noise: dict,
+    noise: Dict[FaultType, np.ndarray],
     dupe_ids: np.ndarray,
-    rewrite_boosts: np.ndarray | None = None,
+    rewrite_boosts: Optional[np.ndarray] = None,
     config_chunk_overlap: int = 0,
 ) -> np.ndarray:
     """
@@ -133,7 +135,7 @@ def apply_faults(
     return S
 
 
-def make_noise(rng: np.random.Generator, shape: tuple) -> dict:
+def make_noise(rng: np.random.Generator, shape: Tuple[int, int]) -> Dict[FaultType, np.ndarray]:
     """
     Generate the standard noise dict expected by apply_faults.
 

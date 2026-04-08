@@ -92,14 +92,20 @@ Dense step reward (`_compute_reward`):
 
 - `coverage_delta = (new.mean_coverage - prev.mean_coverage) * 0.6`
 - `precision_delta = (new.mean_precision - prev.mean_precision) * 0.3`
-- `step_cost = -0.02`
+- `step_cost = -0.03`
 - `redundancy_penalty = -0.10` for same action type twice in a row
 - `empty_retrieval_penalty = -0.15 * new_empty_retrievals`
+- `empty_recovery_bonus = +0.15 * recovered_empty_retrievals`
+- `overflow_penalty = -0.10 * new_context_overflows`
+- `multi_hop_bonus = +0.15 * multi_hop_coverage_improvement` (Task 3 only)
+- `invalid_action_penalty = -0.05` when action params are invalid
 
 Submit reward override (`_apply_action`):
 
 - `+2.0` if success condition is met
 - `-0.5` otherwise
+
+All reward components are exposed in the observation's `reward_components` dict for interpretability.
 
 Task score (`_compute_task_score`):
 

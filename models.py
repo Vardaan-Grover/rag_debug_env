@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -233,6 +233,17 @@ class RAGDebugObservation(Observation):
     )
     done:             bool            = Field(
         False, description="True once the episode has ended."
+    )
+    last_action_error: Optional[str]  = Field(
+        None, description="Error message if the last action was invalid or failed."
+    )
+    diagnostic_hints:  List[str]      = Field(
+        default_factory=list,
+        description="Context-aware diagnostic hints based on current metric patterns.",
+    )
+    reward_components: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Named breakdown of the reward signal for interpretability.",
     )
 
 

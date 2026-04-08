@@ -67,31 +67,58 @@ W = 64  # display width for visual output
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an expert RAG retrieval debugger.
+    You are an expert RAG retrieval debugger. Your task is to diagnose and fix a broken RAG pipeline by analyzing retrieval metrics and adjusting configuration parameters.
 
+    ## Output Format
     Output exactly one JSON object on one line:
     {"action_type":"<type>","params":{...}}
 
-    Allowed action_type values:
-    adjust_chunk_size, adjust_chunk_overlap, adjust_threshold, adjust_top_k,
-    swap_embedding_model, toggle_reranking, adjust_context_limit, rewrite_query, submit
-
-    Param rules:
-    - adjust_chunk_size: {"value": int}
-    - adjust_chunk_overlap: {"value": int}
-    - adjust_threshold: {"value": float}
-    - adjust_top_k: {"value": int}
+    ## Available Actions & Parameters
+    - adjust_chunk_size: {"value": int}       — range 64-2048 (default 512)
+    - adjust_chunk_overlap: {"value": int}    — range 0-500 (default 50)
+    - adjust_threshold: {"value": float}      — range 0.0-1.0 (default 0.3)
+    - adjust_top_k: {"value": int}            — range 1-50 (default 10)
     - swap_embedding_model: {"model": "general"|"medical"|"legal"|"code"}
     - toggle_reranking: {"enabled": bool}
-    - adjust_context_limit: {"value": int}
+    - adjust_context_limit: {"value": int}    — range 512-16384 (default 4096)
     - rewrite_query: {"query_id": int, "strategy": "rephrase"}
-    - submit: {}
+    - submit: {}                              — ends the episode; only submit when metrics are good
 
-    Heuristics:
-    - If empty retrievals are high, lower threshold or increase top_k.
-    - If context overflows are high, increase context window or reduce top_k.
-    - For medical task, consider swapping to medical embedding model.
-    - Submit when metrics look stable and good.
+    ## Diagnostic Framework
+    Analyze the observation systematically:
+
+    1. **Empty retrievals** (n_retrieved=0 for some queries):
+       - Primary cause: similarity_threshold is too high
+       - Fix: lower threshold (try 0.15 or 0.10) or increase top_k
+
+    2. **Low coverage + decent precision** (coverage < 0.6, precision > 0.4):
+       - Primary cause: top_k is too small
+       - Fix: increase top_k (try 15-20)
+
+    3. **Low coverage + low precision** (both < 0.4):
+       - Primary cause: wrong embedding model OR chunk_size too large
+       - Fix: swap embedding model to match domain, reduce chunk_size to 256-384
+       - For medical domain: swap to "medical" model
+       - For legal domain: swap to "legal" model
+
+    4. **Score compression** (all retrieval scores are similar, e.g., std < 0.05):
+       - Primary cause: wrong embedding model or score compression fault
+       - Fix: swap embedding model, then enable reranking
+
+    5. **Context overflow** (n_context_overflows > 0):
+       - Fix: increase context_window_limit (try 8192 or 16384) or reduce top_k
+
+    6. **High scores but low precision** (mean score > 0.7 but precision < 0.5):
+       - Primary cause: duplicate flooding or threshold too low
+       - Fix: enable reranking, or raise threshold slightly
+
+    ## Strategy
+    - Act efficiently: each step costs reward. Diagnose first, then fix.
+    - Fix the most impactful issue first (usually empty retrievals or wrong model).
+    - Enable reranking early if precision is low — it helps with multiple fault types.
+    - For Task 3 (medical): always check if embedding model needs to be swapped to "medical".
+    - Submit when: mean_coverage >= 0.70, no empty retrievals, and metrics are stable.
+    - Do NOT submit if coverage is still below 0.65 or there are empty retrievals.
     """
 ).strip()
 
@@ -301,21 +328,61 @@ def _format_observation(obs: RAGDebugObservation, history: List[str]) -> str:
         f"Task ID: {obs.task_id}",
         f"Task: {obs.task_description}",
         f"Step: {obs.steps_taken}/{obs.max_steps}",
-        f"Config: chunk_size={cfg.chunk_size}, overlap={cfg.chunk_overlap}, threshold={cfg.similarity_threshold}, top_k={cfg.top_k}, model={cfg.embedding_model.value}, reranking={cfg.use_reranking}, context_limit={cfg.context_window_limit}",
-        f"Metrics: coverage={m.mean_coverage:.3f}, precision={m.mean_precision:.3f}, recall={m.mean_recall:.3f}, empty={m.n_empty_retrievals}, overflow={m.n_context_overflows}, multi_hop={m.multi_hop_coverage}",
-        "Per query:",
+        "",
+        "## Current Config",
+        f"  chunk_size={cfg.chunk_size}, overlap={cfg.chunk_overlap}, threshold={cfg.similarity_threshold}",
+        f"  top_k={cfg.top_k}, model={cfg.embedding_model.value}, reranking={'on' if cfg.use_reranking else 'off'}, context_limit={cfg.context_window_limit}",
+        "",
+        "## Aggregate Metrics",
+        f"  coverage={m.mean_coverage:.3f}, precision={m.mean_precision:.3f}",
+        f"  empty_retrievals={m.n_empty_retrievals}, context_overflows={m.n_context_overflows}",
     ]
+    if m.multi_hop_coverage is not None:
+        lines.append(f"  multi_hop_coverage={m.multi_hop_coverage:.3f}")
 
+    lines.append("")
+    lines.append("## Per-Query Results")
+    all_scores = []
     for qr in obs.query_results:
+        mh_flag = " [MULTI-HOP]" if qr.is_multi_hop else ""
+        score_info = ""
+        if qr.retrieval_scores:
+            all_scores.extend(qr.retrieval_scores)
+            s_min = min(qr.retrieval_scores)
+            s_max = max(qr.retrieval_scores)
+            s_mean = sum(qr.retrieval_scores) / len(qr.retrieval_scores)
+            score_info = f"  scores: min={s_min:.3f} max={s_max:.3f} mean={s_mean:.3f}"
         lines.append(
-            f"- q{qr.query_id}: cov={qr.coverage_score:.3f}, prec={qr.precision_score:.3f}, n={qr.n_retrieved}, mh={qr.is_multi_hop}"
+            f"  q{qr.query_id}{mh_flag}: cov={qr.coverage_score:.3f}, prec={qr.precision_score:.3f}, n={qr.n_retrieved}{score_info}"
         )
+        if qr.n_retrieved == 0:
+            lines.append(f"    !! EMPTY — no chunks above threshold")
+
+    # Score distribution summary (helps diagnose wrong model / compression)
+    if all_scores:
+        import statistics
+        s_std = statistics.stdev(all_scores) if len(all_scores) > 1 else 0.0
+        lines.append(f"\n## Score Distribution: mean={sum(all_scores)/len(all_scores):.3f}, std={s_std:.3f}")
+        if s_std < 0.05:
+            lines.append("  WARNING: Scores are tightly compressed — possible wrong embedding model")
+
+    # Diagnostic hints from environment
+    hints = getattr(obs, "diagnostic_hints", [])
+    if hints:
+        lines.append("\n## Diagnostic Hints")
+        for h in hints:
+            lines.append(f"  - {h}")
+
+    # Action error feedback
+    err = getattr(obs, "last_action_error", None)
+    if err:
+        lines.append(f"\n## Last Action Error: {err}")
 
     if history:
-        lines.append("Recent actions:")
-        lines.extend(f"- {item}" for item in history[-4:])
+        lines.append("\n## Recent Actions")
+        lines.extend(f"  {item}" for item in history[-5:])
 
-    lines.append("Return only one JSON action.")
+    lines.append("\nReturn exactly one JSON action.")
     return "\n".join(lines)
 
 
@@ -327,21 +394,103 @@ def _extract_last_action_error(obs: RAGDebugObservation) -> Optional[str]:
 
 
 def _heuristic_action(obs: RAGDebugObservation) -> RAGDebugAction:
+    """Smart heuristic fallback when LLM parsing fails."""
     metrics = obs.metrics
     cfg = obs.pipeline_config
 
-    if metrics.n_empty_retrievals > 0 and cfg.similarity_threshold > 0.1:
-        return RAGDebugAction(action_type=ActionType.ADJUST_THRESHOLD, params={"value": max(0.05, cfg.similarity_threshold - 0.1)})
+    # Priority 1: Fix empty retrievals (most impactful)
+    if metrics.n_empty_retrievals > 0:
+        if cfg.similarity_threshold > 0.15:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_THRESHOLD,
+                params={"value": round(max(0.05, cfg.similarity_threshold - 0.15), 2)},
+            )
+        if cfg.top_k < 20:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_TOP_K,
+                params={"value": min(30, cfg.top_k + 5)},
+            )
 
-    if metrics.n_context_overflows > 0 and cfg.context_window_limit < 16384:
-        return RAGDebugAction(action_type=ActionType.ADJUST_CONTEXT_LIMIT, params={"value": min(16384, cfg.context_window_limit + 1024)})
-
+    # Priority 2: Wrong embedding model (Task 3 specific)
     if obs.task_id == 3 and cfg.embedding_model.value != "medical":
-        return RAGDebugAction(action_type=ActionType.SWAP_EMBEDDING_MODEL, params={"model": "medical"})
+        return RAGDebugAction(
+            action_type=ActionType.SWAP_EMBEDDING_MODEL,
+            params={"model": "medical"},
+        )
 
-    if cfg.top_k < 15:
-        return RAGDebugAction(action_type=ActionType.ADJUST_TOP_K, params={"value": min(50, cfg.top_k + 3)})
+    # Priority 3: Score compression detection → swap model or enable reranking
+    all_scores = [s for qr in obs.query_results for s in qr.retrieval_scores]
+    if all_scores and len(all_scores) > 3:
+        import statistics
+        score_std = statistics.stdev(all_scores)
+        if score_std < 0.05 and not cfg.use_reranking:
+            return RAGDebugAction(
+                action_type=ActionType.TOGGLE_RERANKING,
+                params={"enabled": True},
+            )
 
+    # Priority 4: Fix context overflow
+    if metrics.n_context_overflows > 0:
+        if cfg.context_window_limit < 16384:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_CONTEXT_LIMIT,
+                params={"value": min(16384, cfg.context_window_limit * 2)},
+            )
+        elif cfg.top_k > 5:
+            return RAGDebugAction(
+                action_type=ActionType.ADJUST_TOP_K,
+                params={"value": max(5, cfg.top_k - 3)},
+            )
+
+    # Priority 5: Low coverage → increase top_k
+    if metrics.mean_coverage < 0.6 and cfg.top_k < 20:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_TOP_K,
+            params={"value": min(30, cfg.top_k + 5)},
+        )
+
+    # Priority 6: Enable reranking if precision is poor
+    if metrics.mean_precision < 0.4 and not cfg.use_reranking:
+        return RAGDebugAction(
+            action_type=ActionType.TOGGLE_RERANKING,
+            params={"enabled": True},
+        )
+
+    # Priority 7: Chunk size reduction for large chunks
+    if metrics.mean_coverage < 0.6 and cfg.chunk_size > 384:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_CHUNK_SIZE,
+            params={"value": max(256, cfg.chunk_size // 2)},
+        )
+
+    # Priority 8: Reduce chunk size if it's large and coverage is low
+    if metrics.mean_coverage < 0.7 and cfg.chunk_size > 300:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_CHUNK_SIZE,
+            params={"value": max(256, cfg.chunk_size // 2)},
+        )
+
+    # Priority 9: Lower threshold further if coverage is still not great
+    if metrics.mean_coverage < 0.7 and cfg.similarity_threshold > 0.10:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_THRESHOLD,
+            params={"value": round(max(0.05, cfg.similarity_threshold - 0.10), 2)},
+        )
+
+    # Priority 10: Submit only when metrics are genuinely good
+    if (metrics.mean_coverage >= 0.70
+            and metrics.mean_precision >= 0.15
+            and metrics.n_empty_retrievals == 0):
+        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
+
+    # Fallback: increase top_k one more time
+    if cfg.top_k < 30:
+        return RAGDebugAction(
+            action_type=ActionType.ADJUST_TOP_K,
+            params={"value": min(30, cfg.top_k + 5)},
+        )
+
+    # Last resort submit
     return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
 
 
@@ -393,22 +542,30 @@ async def _connect_env() -> RAGDebugEnv:
 
 async def _next_action(client: OpenAI, obs: RAGDebugObservation, history: List[str]) -> Tuple[RAGDebugAction, str]:
     prompt = _format_observation(obs, history)
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-        )
-        raw = completion.choices[0].message.content or ""
-        return _parse_action_json(raw, obs)
-    except Exception:
-        action = _heuristic_action(obs)
-        action_str = json.dumps({"action_type": action.action_type.value, "params": action.params}, separators=(",", ":"))
-        return action, action_str
+    last_exc = None
+    for attempt in range(3):
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+            )
+            raw = completion.choices[0].message.content or ""
+            return _parse_action_json(raw, obs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                await asyncio.sleep(2 ** attempt)  # exponential backoff: 1s, 2s
+                continue
+    # All retries exhausted — fall back to heuristic agent
+    _rich(f"  [LLM failed after 3 attempts: {last_exc}]")
+    action = _heuristic_action(obs)
+    action_str = json.dumps({"action_type": action.action_type.value, "params": action.params}, separators=(",", ":"))
+    return action, action_str
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────────
