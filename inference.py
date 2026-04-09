@@ -50,8 +50,8 @@ from models import ActionType, RAGDebugAction, RAGDebugObservation
 
 
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "nebius/Qwen/Qwen2.5-72B-Instruct"
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost:7860")
@@ -837,12 +837,8 @@ async def _next_action(
             if attempt < 2:
                 await asyncio.sleep(2 ** attempt)
                 continue
-    # All retries exhausted — fall back to heuristic agent
-    _rich(f"  [LLM failed after 3 attempts: {last_exc}]")
-    action = _stabilize_action(obs, _heuristic_action(obs))
-    action_str = json.dumps({"action_type": action.action_type.value, "params": action.params}, separators=(",", ":"))
-    messages.append({"role": "assistant", "content": action_str})
-    return action, action_str
+    # All retries exhausted — raise so the caller sees the real error
+    raise RuntimeError(f"LLM failed after 3 attempts: {last_exc}") from last_exc
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────────
