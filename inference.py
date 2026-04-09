@@ -1,22 +1,23 @@
 """
-Inference Script - RAGDebugEnv
-==============================
+Inference Script Example
+===================================
 MANDATORY
 - Before submitting, ensure the following variables are defined in your environment configuration:
-    API_BASE_URL      The API endpoint for the LLM.
-    MODEL_NAME        The model identifier to use for inference.
-    HF_TOKEN          Your Hugging Face / API key.
-    LOCAL_IMAGE_NAME  Optional local image name when using from_docker_image().
+    API_BASE_URL    The API endpoint for the LLM.
+    MODEL_NAME      The model identifier to use for inference.
+    API_KEY         Your API key.
+    LOCAL_IMAGE_NAME The name of the local image to use for the environment
+                     if you are using from_docker_image().
 
 - Defaults are set only for API_BASE_URL and MODEL_NAME:
     API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-endpoint>")
     MODEL_NAME = os.getenv("MODEL_NAME", "<your-active-model>")
 
-- The inference script must be named inference.py and placed in the root directory of the project.
-- Participants must use OpenAI Client for all LLM calls.
+- The inference script must be named inference.py and placed in the root directory.
+- OpenAI Client is used for all LLM calls.
 
 STDOUT FORMAT
-- The script must emit exactly three line types to stdout, in this order:
+- The script emits exactly three line types to stdout, in this order:
 
     [START] task=<task_name> env=<benchmark> model=<model_name>
     [STEP]  step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
@@ -30,7 +31,7 @@ STDOUT FORMAT
     - done and success are lowercase booleans: true or false.
     - error is the raw last_action_error string, or null if none.
     - All fields on a single line with no newlines within a line.
-    - The task score must be in [0, 1].
+    - Each task returns score in [0, 1].
 """
 
 from __future__ import annotations
@@ -40,8 +41,7 @@ import json
 import os
 import re
 import sys
-import textwrap
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
@@ -49,385 +49,391 @@ from client import RAGDebugEnv
 from models import ActionType, RAGDebugAction, RAGDebugObservation
 
 
-API_KEY = os.environ["API_KEY"]
-API_BASE_URL = os.environ["API_BASE_URL"]
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+API_BASE_URL = os.getenv("API_BASE_URL")
+MODEL_NAME = os.getenv("MODEL_NAME")
+API_KEY = os.getenv("API_KEY")
 
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost:7860")
-
-TASK_ID = int(os.getenv("RAG_DEBUG_TASK", "1"))
 BENCHMARK = os.getenv("RAG_DEBUG_BENCHMARK", "rag_debug_env")
+DEFAULT_TASK_IDS = (1, 2, 3)
 MAX_STEPS_OVERRIDE = int(os.getenv("RAG_DEBUG_MAX_STEPS", "10"))
 
-TEMPERATURE = 0.2
-MAX_TOKENS = 512
+TEMPERATURE = float(os.getenv("RAG_DEBUG_TEMPERATURE", "0.1"))
+MAX_TOKENS = int(os.getenv("RAG_DEBUG_MAX_TOKENS", "256"))
+HUMAN_LOGS_ENABLED = os.getenv("RAG_DEBUG_HUMAN_LOGS", "1").strip().lower() not in {
+    "0",
+    "false",
+    "off",
+    "no",
+}
 
-W = 64  # display width for visual output
+REQUIRED_ENV_VARS = ("API_BASE_URL", "API_KEY", "MODEL_NAME")
 
-SYSTEM_PROMPT = textwrap.dedent(
+
+SYSTEM_PROMPT = """You are an expert RAG retrieval debugger.
+Goal: maximize final task score within the available step budget.
+
+You will receive only observed state (metrics, config, recent history, and errors).
+Infer root causes from these observations without assuming any known fault labels.
+
+Cross-step policy:
+1) compare current state against recent_history,
+2) avoid repeating actions that produced no gain,
+3) prioritize actions with measurable improvement,
+4) submit only when metrics indicate likely success.
+
+Output contract:
+- return exactly one JSON object and nothing else,
+- no markdown, no prose, no code fences,
+- schema: {"action_type":"<type>","params":{...}}.
+
+Valid action_type values:
+- adjust_chunk_size with params {"value": int in [64,2048]}
+- adjust_chunk_overlap with params {"value": int in [0,500]}
+- adjust_threshold with params {"value": float in [0.0,1.0]}
+- adjust_top_k with params {"value": int in [1,50]}
+- swap_embedding_model with params {"model": "general"|"medical"|"legal"|"code"}
+- toggle_reranking with params {"enabled": bool}
+- adjust_context_limit with params {"value": int in [512,16384]}
+- rewrite_query with params {"query_id": int, "strategy": "rephrase"}
+- submit with params {}
+"""
+
+
+def _validate_required_env_vars() -> None:
+    missing: List[str] = []
+
+    for name in REQUIRED_ENV_VARS:
+        value = os.getenv(name)
+        if value is None or not value.strip():
+            missing.append(name)
+
+    api_base_url_value = (API_BASE_URL or "").strip()
+    model_name_value = (MODEL_NAME or "").strip()
+
+    placeholder_values: List[str] = []
+    if api_base_url_value == "<your-active-endpoint>":
+        placeholder_values.append("API_BASE_URL")
+    if model_name_value == "<your-active-model>":
+        placeholder_values.append("MODEL_NAME")
+
+    if missing or placeholder_values:
+        parts: List[str] = []
+        if missing:
+            parts.append(f"missing={','.join(missing)}")
+        if placeholder_values:
+            parts.append(f"placeholder={','.join(placeholder_values)}")
+        raise EnvironmentError(
+            "Required environment configuration is invalid: " + " ".join(parts)
+        )
+
+
+def _parse_task_ids(value: str) -> Tuple[int, ...]:
     """
-    You are an expert RAG retrieval debugger. Your task is to diagnose and fix a broken RAG pipeline by analyzing retrieval metrics and adjusting configuration parameters.
+    Parse RAG_DEBUG_TASK_IDS.
 
-    ## Output Format
-    Reason step-by-step before acting:
-    1. **Diagnosis**: What do the current metrics reveal? What fault(s) do you suspect?
-    2. **History**: What have your previous actions changed? What hypotheses are confirmed or ruled out?
-    3. **Plan**: What to try next and why?
-
-    Then output exactly one JSON object on its own line:
-    {"action_type":"<type>","params":{...}}
-
-    ## Available Actions & Parameters
-    - adjust_chunk_size: {"value": int}       — range 64-2048 (default 512)
-    - adjust_chunk_overlap: {"value": int}    — range 0-500 (default 50)
-    - adjust_threshold: {"value": float}      — range 0.0-1.0 (default 0.3)
-    - adjust_top_k: {"value": int}            — range 1-50 (default 10)
-    - swap_embedding_model: {"model": "general"|"medical"|"legal"|"code"}
-    - toggle_reranking: {"enabled": bool}
-    - adjust_context_limit: {"value": int}    — range 512-16384 (default 4096)
-    - rewrite_query: {"query_id": int, "strategy": "rephrase"}
-    - submit: {}                              — ends the episode; only submit when metrics are good
-
-    ## Diagnostic Framework
-    Analyze the observation systematically:
-
-    1. **Empty retrievals** (n_retrieved=0 for some queries):
-       - Primary cause: similarity_threshold is too high
-       - Fix: lower threshold (try 0.15 or 0.10) or increase top_k
-
-    2. **Low coverage + decent precision** (coverage < 0.6, precision > 0.4):
-       - Primary cause: top_k is too small
-       - Fix: increase top_k (try 15-20)
-
-    3. **Low coverage + low precision** (both < 0.4):
-       - Primary cause: wrong embedding model OR chunk_size too large
-       - Fix: swap embedding model to match domain, reduce chunk_size to 256-384
-       - For medical domain: swap to "medical" model
-       - For legal domain: swap to "legal" model
-
-    4. **Score compression** (all retrieval scores are similar, e.g., std < 0.05):
-       - Primary cause: wrong embedding model or score compression fault
-       - Fix: swap embedding model, then enable reranking
-
-    5. **Context overflow** (n_context_overflows > 0):
-       - Fix: increase context_window_limit (try 8192 or 16384) or reduce top_k
-
-    6. **High scores but low precision** (mean score > 0.7 but precision < 0.5):
-       - Primary cause: duplicate flooding or threshold too low
-       - Fix: enable reranking, or raise threshold slightly
-
-    ## Task Score (determines success/failure)
-    Tasks 1 & 2: score = 0.60*coverage + 0.25*precision + 0.15*(1 - steps/max_steps)
-      Success requires score >= 0.75. Fewer steps = higher efficiency bonus.
-    Task 3: score = 0.55*coverage + 0.25*precision + 0.20*multi_hop_coverage
-      Success requires score >= 0.70 AND multi_hop_coverage > 0.60
-
-    ## Strategy
-    - Act efficiently: each step reduces your efficiency bonus. Diagnose fast, fix precisely.
-    - Fix the most impactful issue first (usually the config anomaly, empty retrievals, or wrong model).
-    - Enable reranking if precision is low — it helps with multiple fault types.
-    - For Tasks 1 & 2, avoid swapping embedding model unless there is very strong evidence of model mismatch.
-    - If coverage is high (>=0.85) but precision is low (<0.35), stop increasing top_k; prioritize reranking and raising threshold.
-    - For Task 3 (medical): always swap embedding model to "medical".
-    - For Tasks 1 & 2, submit only when score >= 0.77, coverage >= 0.80, precision >= 0.40, and empty retrievals = 0.
-    - For Task 3, submit only when score >= 0.78 and multi_hop_coverage > 0.60.
-
-    ## Cross-Step Reasoning
-    You will see your previous reasoning and actions in the conversation history.
-    Use this to track hypotheses across steps:
-    - If an action had no effect, the root cause is likely elsewhere — say so explicitly.
-    - If lowering threshold didn't fix empty retrievals, suspect wrong embedding model.
-    - If increasing top_k didn't improve coverage, the scores themselves are wrong (model mismatch).
-    - Never repeat an action that produced no improvement. Build on what you've learned.
+    Accepted values:
+    - "all" (default): runs tasks 1,2,3
+    - Comma list: "1", "1,2", "2,3", "1,3", "1,2,3"
     """
-).strip()
+    raw = (value or "all").strip().lower()
+    if raw in {"", "all"}:
+        return DEFAULT_TASK_IDS
+
+    tokens = [t.strip() for t in raw.split(",") if t.strip()]
+    if not tokens:
+        raise ValueError(
+            "RAG_DEBUG_TASK_IDS is empty. Use 'all' or a comma list like '1,2,3'."
+        )
+
+    task_ids: List[int] = []
+    seen: set[int] = set()
+    for token in tokens:
+        if token not in {"1", "2", "3"}:
+            raise ValueError(
+                "RAG_DEBUG_TASK_IDS contains invalid task id "
+                f"'{token}'. Allowed values are 1,2,3 or 'all'."
+            )
+        task_id = int(token)
+        if task_id not in seen:
+            seen.add(task_id)
+            task_ids.append(task_id)
+
+    return tuple(task_ids)
 
 
-# ─── Rich Display (stderr) ─────────────────────────────────────────────────────
-
-def _rich(text: str = "") -> None:
-    """Print rich visual output to stderr (visible in terminal, invisible to stdout parsers)."""
-    print(text, file=sys.stderr, flush=True)
+def _stderr(line: str = "") -> None:
+    if HUMAN_LOGS_ENABLED:
+        print(line, file=sys.stderr, flush=True)
 
 
-def _bar(value: float, width: int = 25, fill: str = "█", empty: str = "░") -> str:
-    """Render a horizontal bar for a 0.0–1.0 value."""
-    n = int(round(value * width))
-    return fill * n + empty * (width - n)
+def _progress_bar(value: float, width: int = 26) -> str:
+    clamped = max(0.0, min(1.0, float(value)))
+    filled = int(round(clamped * width))
+    return "#" * filled + "-" * (width - filled)
 
 
-def _delta_str(old: float, new: float) -> str:
-    """Format a metric delta with sign and color hint."""
-    d = new - old
-    sign = "+" if d >= 0 else ""
-    return f"{sign}{d:.3f}"
+def _fmt_opt_float(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.3f}"
 
 
-def _show_banner() -> None:
-    _rich()
-    _rich(f"{'─' * W}")
-    _rich(f"  RAGDebugEnv  │  RL Environment for Diagnosing Broken RAG Pipelines")
-    _rich(f"{'─' * W}")
-    _rich()
-    _rich(f"  Model       {MODEL_NAME}")
-    _rich(f"  Endpoint    {API_BASE_URL}")
-    _rich(f"  Task        task_{TASK_ID}  ({BENCHMARK})")
-    _rich()
+def _fmt_delta(current: float, previous: Optional[float]) -> str:
+    if previous is None:
+        return "n/a"
+    return f"{(current - previous):+.3f}"
 
 
-def _show_task_info(obs: RAGDebugObservation) -> None:
-    cs = obs.corpus_stats
-    _rich(f"{'─' * W}")
-    _rich(f"  TASK DESCRIPTION")
-    # Wrap task description to fit nicely
-    for line in textwrap.wrap(obs.task_description, width=W - 4):
-        _rich(f"  {line}")
-    _rich()
-    mh_str = str(cs.n_multi_hop_queries) if cs.n_multi_hop_queries else "n/a"
-    _rich(f"  CORPUS  domain={cs.domain.value}  docs={cs.n_documents}  chunks={cs.n_chunks}  "
-          f"avg_tokens={cs.avg_chunk_tokens}  queries={cs.n_queries}  multi_hop={mh_str}")
-    _rich(f"{'─' * W}")
-
-
-def _show_config(obs: RAGDebugObservation) -> None:
+def _log_episode_start(obs: RAGDebugObservation, max_steps: int) -> None:
     cfg = obs.pipeline_config
-    _rich(f"  CONFIG  chunk_size={cfg.chunk_size}  overlap={cfg.chunk_overlap}  "
-          f"threshold={cfg.similarity_threshold}  top_k={cfg.top_k}")
-    _rich(f"          model={cfg.embedding_model.value}  reranking={'on' if cfg.use_reranking else 'off'}  "
-          f"context_limit={cfg.context_window_limit}")
-
-
-def _show_metrics(obs: RAGDebugObservation, label: str = "METRICS") -> None:
     m = obs.metrics
-    mh = f"{m.multi_hop_coverage:.3f}" if m.multi_hop_coverage is not None else "n/a"
-    _rich(f"  {label}")
-    _rich(f"    coverage   {_bar(m.mean_coverage)} {m.mean_coverage:.3f}")
-    _rich(f"    precision  {_bar(m.mean_precision)} {m.mean_precision:.3f}")
-    _rich(f"    empty={m.n_empty_retrievals}  overflow={m.n_context_overflows}  multi_hop={mh}")
+    score_est = _estimated_score(obs)
+
+    _stderr()
+    _stderr("=" * 76)
+    _stderr(
+        f"RAG Debug Run | task=task_{obs.task_id} | env={BENCHMARK} | model={MODEL_NAME}"
+    )
+    _stderr(f"Description: {_as_single_line(obs.task_description)}")
+    _stderr(
+        "Config: "
+        f"chunk_size={cfg.chunk_size} overlap={cfg.chunk_overlap} "
+        f"threshold={cfg.similarity_threshold:.2f} top_k={cfg.top_k} "
+        f"model={cfg.embedding_model.value} reranking={_bool_text(cfg.use_reranking)} "
+        f"context_limit={cfg.context_window_limit}"
+    )
+    _stderr(f"Budget: steps=0/{max_steps}")
+    _stderr(
+        f"coverage  [{_progress_bar(m.mean_coverage)}] {m.mean_coverage:.3f}"
+    )
+    _stderr(
+        f"precision [{_progress_bar(m.mean_precision)}] {m.mean_precision:.3f}"
+    )
+    if m.multi_hop_coverage is not None:
+        _stderr(
+            f"multi_hop [{_progress_bar(m.multi_hop_coverage)}] {m.multi_hop_coverage:.3f}"
+        )
+    _stderr(
+        f"est_score [{_progress_bar(score_est)}] {score_est:.3f} "
+        f"empty={m.n_empty_retrievals} overflow={m.n_context_overflows}"
+    )
+    _stderr("=" * 76)
 
 
-def _show_queries(obs: RAGDebugObservation) -> None:
-    _rich(f"  QUERIES")
-    for qr in obs.query_results:
-        mh_flag = " [multi-hop]" if qr.is_multi_hop else ""
-        _rich(f"    q{qr.query_id:>3}: cov={qr.coverage_score:.3f}  "
-              f"prec={qr.precision_score:.3f}  n={qr.n_retrieved:>2}{mh_flag}")
-
-
-def _show_initial_state(obs: RAGDebugObservation) -> None:
-    _rich()
-    _rich(f"  INITIAL STATE  (step 0/{obs.max_steps})")
-    _show_config(obs)
-    _rich()
-    _show_metrics(obs, label="INITIAL METRICS")
-    _rich()
-    _show_queries(obs)
-    _rich(f"{'─' * W}")
-
-
-def _show_step(
+def _log_step_details(
     step: int,
     max_steps: int,
-    action_str: str,
+    action_text: str,
     reward: float,
+    done: bool,
     obs: RAGDebugObservation,
-    prev_cov: float,
-    prev_prec: float,
+    prev_coverage: Optional[float],
+    prev_precision: Optional[float],
 ) -> None:
     m = obs.metrics
-    cov_delta = _delta_str(prev_cov, m.mean_coverage)
-    prec_delta = _delta_str(prev_prec, m.mean_precision)
+    step_progress = step / max(1, max_steps)
+    score_est = _estimated_score(obs)
 
-    _rich()
-    _rich(f"  ━━━ Step {step}/{max_steps} ━━━{'━' * (W - 20)}")
-    _rich(f"  Action:  {action_str}")
-    _rich(f"  Reward:  {reward:+.2f}")
-    _rich(f"    coverage   {_bar(m.mean_coverage)} {m.mean_coverage:.3f}  ({cov_delta})")
-    _rich(f"    precision  {_bar(m.mean_precision)} {m.mean_precision:.3f}  ({prec_delta})")
+    _stderr()
+    _stderr("-" * 76)
+    _stderr(
+        f"Step {step:02d}/{max_steps:02d} "
+        f"[{_progress_bar(step_progress, width=18)}] reward={reward:+.2f} done={_bool_text(done)}"
+    )
+    _stderr(f"action: {action_text}")
+    _stderr(
+        f"coverage  [{_progress_bar(m.mean_coverage)}] {m.mean_coverage:.3f} "
+        f"({_fmt_delta(m.mean_coverage, prev_coverage)})"
+    )
+    _stderr(
+        f"precision [{_progress_bar(m.mean_precision)}] {m.mean_precision:.3f} "
+        f"({_fmt_delta(m.mean_precision, prev_precision)})"
+    )
     if m.multi_hop_coverage is not None:
-        _rich(f"    multi_hop  {_bar(m.multi_hop_coverage)} {m.multi_hop_coverage:.3f}")
+        _stderr(
+            f"multi_hop [{_progress_bar(m.multi_hop_coverage)}] {m.multi_hop_coverage:.3f}"
+        )
+    _stderr(
+        f"est_score [{_progress_bar(score_est)}] {score_est:.3f} "
+        f"empty={m.n_empty_retrievals} overflow={m.n_context_overflows}"
+    )
+
+    if obs.last_action_error:
+        _stderr(f"last_action_error: {str(obs.last_action_error).replace(chr(10), ' ')}")
+    _stderr("-" * 76)
 
 
-def _show_summary(
+def _log_final_summary(
     success: bool,
     score: float,
-    steps: int,
+    steps_taken: int,
     max_steps: int,
     rewards: List[float],
     initial_obs: Optional[RAGDebugObservation],
-    final_obs: Optional[RAGDebugObservation],
+    obs: Optional[RAGDebugObservation],
 ) -> None:
-    _rich()
-    _rich(f"{'═' * W}")
-    result_label = "SUCCESS" if success else "FAILURE"
-    _rich(f"  RESULT: {result_label}    Score: {score:.3f}    Steps: {steps}/{max_steps}")
-    _rich(f"{'═' * W}")
+    _stderr()
+    _stderr("-" * 76)
+    _stderr(
+        f"Final | success={_bool_text(success)} "
+        f"steps={steps_taken}/{max_steps} score={score:.3f}"
+    )
+    if rewards:
+        avg_reward = sum(rewards) / len(rewards)
+        _stderr(
+            f"rewards: count={len(rewards)} avg={avg_reward:.3f} "
+            f"min={min(rewards):.3f} max={max(rewards):.3f}"
+        )
+    else:
+        _stderr("rewards: count=0")
 
-    if final_obs is not None and initial_obs is not None:
-        mi = initial_obs.metrics
-        mf = final_obs.metrics
+    if obs is not None:
+        m = obs.metrics
+        _stderr(
+            f"final_metrics: coverage={m.mean_coverage:.3f} precision={m.mean_precision:.3f} "
+            f"multi_hop={_fmt_opt_float(m.multi_hop_coverage)} "
+            f"empty={m.n_empty_retrievals} overflow={m.n_context_overflows}"
+        )
 
-        _rich(f"  METRIC TRAJECTORY")
-        _rich(f"    coverage   {mi.mean_coverage:.3f}  -->  {mf.mean_coverage:.3f}  "
-              f"({_delta_str(mi.mean_coverage, mf.mean_coverage)})")
-        _rich(f"    precision  {mi.mean_precision:.3f}  -->  {mf.mean_precision:.3f}  "
-              f"({_delta_str(mi.mean_precision, mf.mean_precision)})")
-        if mf.multi_hop_coverage is not None:
-            mhi = mi.multi_hop_coverage or 0.0
-            _rich(f"    multi_hop  {mhi:.3f}  -->  {mf.multi_hop_coverage:.3f}  "
-                  f"({_delta_str(mhi, mf.multi_hop_coverage)})")
-        _rich()
-
-        ci = initial_obs.pipeline_config
-        cf = final_obs.pipeline_config
-        changes = []
-        if ci.chunk_size != cf.chunk_size:
-            changes.append(f"chunk_size {ci.chunk_size} -> {cf.chunk_size}")
-        if ci.chunk_overlap != cf.chunk_overlap:
-            changes.append(f"overlap {ci.chunk_overlap} -> {cf.chunk_overlap}")
-        if ci.similarity_threshold != cf.similarity_threshold:
-            changes.append(f"threshold {ci.similarity_threshold} -> {cf.similarity_threshold}")
-        if ci.top_k != cf.top_k:
-            changes.append(f"top_k {ci.top_k} -> {cf.top_k}")
-        if ci.embedding_model != cf.embedding_model:
-            changes.append(f"model {ci.embedding_model.value} -> {cf.embedding_model.value}")
-        if ci.use_reranking != cf.use_reranking:
-            changes.append(f"reranking {'on' if ci.use_reranking else 'off'} -> {'on' if cf.use_reranking else 'off'}")
-        if ci.context_window_limit != cf.context_window_limit:
-            changes.append(f"context_limit {ci.context_window_limit} -> {cf.context_window_limit}")
-
-        if changes:
-            _rich(f"  CONFIG CHANGES")
-            for c in changes:
-                _rich(f"    {c}")
-        else:
-            _rich(f"  CONFIG CHANGES  (none)")
-
-    _rich()
-    rewards_str = "  ".join(f"{r:+.2f}" for r in rewards)
-    _rich(f"  REWARDS  [{rewards_str}]")
-    _rich(f"{'═' * W}")
-    _rich()
+    if initial_obs is not None and obs is not None:
+        m0 = initial_obs.metrics
+        m1 = obs.metrics
+        _stderr("metric_change:")
+        _stderr(
+            f"  coverage:  {m0.mean_coverage:.3f} -> {m1.mean_coverage:.3f} "
+            f"({_fmt_delta(m1.mean_coverage, m0.mean_coverage)})"
+        )
+        _stderr(
+            f"  precision: {m0.mean_precision:.3f} -> {m1.mean_precision:.3f} "
+            f"({_fmt_delta(m1.mean_precision, m0.mean_precision)})"
+        )
+        if m0.multi_hop_coverage is not None or m1.multi_hop_coverage is not None:
+            mh0 = m0.multi_hop_coverage or 0.0
+            mh1 = m1.multi_hop_coverage or 0.0
+            _stderr(
+                f"  multi_hop: {mh0:.3f} -> {mh1:.3f} "
+                f"({_fmt_delta(mh1, mh0)})"
+            )
+        _stderr(
+            f"  empty:     {m0.n_empty_retrievals} -> {m1.n_empty_retrievals} "
+            f"({m1.n_empty_retrievals - m0.n_empty_retrievals:+d})"
+        )
+        _stderr(
+            f"  overflow:  {m0.n_context_overflows} -> {m1.n_context_overflows} "
+            f"({m1.n_context_overflows - m0.n_context_overflows:+d})"
+        )
+        start_score = _estimated_score(initial_obs)
+        end_score = _estimated_score(obs)
+        _stderr(
+            f"  est_score: {start_score:.3f} -> {end_score:.3f} "
+            f"({_fmt_delta(end_score, start_score)})"
+        )
+    _stderr("-" * 76)
 
 
-# ─── Mandatory stdout logging ──────────────────────────────────────────────────
-
-def _one_line(value: str) -> str:
+def _as_single_line(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"
+
+
 def log_start(task: str, env: str, model: str) -> None:
-    print(f"[START] task={_one_line(task)} env={_one_line(env)} model={_one_line(model)}", flush=True)
+    print(
+        f"[START] task={_as_single_line(task)} env={_as_single_line(env)} model={_as_single_line(model)}",
+        flush=True,
+    )
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
-    done_val = str(done).lower()
-    error_val = _one_line(error) if error else "null"
-    action_val = _one_line(action)
+    action_text = _as_single_line(action)
+    error_text = "null" if error is None else str(error).replace("\n", "\\n")
     print(
-        f"[STEP] step={step} action={action_val} reward={reward:.2f} done={done_val} error={error_val}",
+        f"[STEP] step={step} action={action_text} reward={reward:.2f} done={_bool_text(done)} error={error_text}",
         flush=True,
     )
 
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_text = ",".join(f"{r:.2f}" for r in rewards)
+    clipped_score = min(max(float(score), 0.0), 1.0)
     print(
-        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        f"[END] success={_bool_text(success)} steps={steps} score={clipped_score:.3f} rewards={rewards_text}",
         flush=True,
     )
 
 
-# ─── Agent logic ────────────────────────────────────────────────────────────────
-
-def _format_observation(obs: RAGDebugObservation, last_reward: Optional[float] = None) -> str:
+def _build_observation_prompt(
+    obs: RAGDebugObservation,
+    previous_reward: Optional[float],
+    recent_history: List[Dict[str, Any]],
+) -> str:
+    m = obs.metrics
     cfg = obs.pipeline_config
-    m = obs.metrics
-
-    lines = []
-    if last_reward is not None:
-        lines.append(f"Previous action reward: {last_reward:+.3f}")
-        lines.append("")
-    lines += [
-        f"Task ID: {obs.task_id}",
-        f"Task: {obs.task_description}",
-        f"Step: {obs.steps_taken}/{obs.max_steps}",
-        "",
-        "## Current Config",
-        f"  chunk_size={cfg.chunk_size}, overlap={cfg.chunk_overlap}, threshold={cfg.similarity_threshold}",
-        f"  top_k={cfg.top_k}, model={cfg.embedding_model.value}, reranking={'on' if cfg.use_reranking else 'off'}, context_limit={cfg.context_window_limit}",
-        "",
-        "## Aggregate Metrics",
-        f"  coverage={m.mean_coverage:.3f}, precision={m.mean_precision:.3f}",
-        f"  empty_retrievals={m.n_empty_retrievals}, context_overflows={m.n_context_overflows}",
+    query_brief = [
+        {
+            "query_id": q.query_id,
+            "n_retrieved": q.n_retrieved,
+            "coverage": round(q.coverage_score, 4),
+            "precision": round(q.precision_score, 4),
+            "is_multi_hop": q.is_multi_hop,
+        }
+        for q in obs.query_results
     ]
-    if m.multi_hop_coverage is not None:
-        lines.append(f"  multi_hop_coverage={m.multi_hop_coverage:.3f}")
 
-    lines.append("")
-    lines.append("## Per-Query Results")
-    all_scores = []
-    for qr in obs.query_results:
-        mh_flag = " [MULTI-HOP]" if qr.is_multi_hop else ""
-        score_info = ""
-        if qr.retrieval_scores:
-            all_scores.extend(qr.retrieval_scores)
-            s_min = min(qr.retrieval_scores)
-            s_max = max(qr.retrieval_scores)
-            s_mean = sum(qr.retrieval_scores) / len(qr.retrieval_scores)
-            score_info = f"  scores: min={s_min:.3f} max={s_max:.3f} mean={s_mean:.3f}"
-        lines.append(
-            f"  q{qr.query_id}{mh_flag}: cov={qr.coverage_score:.3f}, prec={qr.precision_score:.3f}, n={qr.n_retrieved}{score_info}"
-        )
-        if qr.n_retrieved == 0:
-            lines.append(f"    !! EMPTY — no chunks above threshold")
+    payload: Dict[str, Any] = {
+        "task_id": obs.task_id,
+        "steps_taken": obs.steps_taken,
+        "max_steps": obs.max_steps,
+        "pipeline_config": {
+            "chunk_size": cfg.chunk_size,
+            "chunk_overlap": cfg.chunk_overlap,
+            "similarity_threshold": cfg.similarity_threshold,
+            "top_k": cfg.top_k,
+            "embedding_model": cfg.embedding_model.value,
+            "use_reranking": cfg.use_reranking,
+            "context_window_limit": cfg.context_window_limit,
+        },
+        "metrics": {
+            "mean_coverage": m.mean_coverage,
+            "mean_precision": m.mean_precision,
+            "n_empty_retrievals": m.n_empty_retrievals,
+            "n_context_overflows": m.n_context_overflows,
+            "multi_hop_coverage": m.multi_hop_coverage,
+        },
+        "query_results": query_brief,
+        "last_action_error": obs.last_action_error,
+        "previous_reward": previous_reward,
+        "recent_history": recent_history,
+    }
 
-    # Score distribution summary (helps diagnose wrong model / compression)
-    if all_scores:
-        import statistics
-        s_std = statistics.stdev(all_scores) if len(all_scores) > 1 else 0.0
-        lines.append(f"\n## Score Distribution: mean={sum(all_scores)/len(all_scores):.3f}, std={s_std:.3f}")
-        if s_std < 0.05:
-            lines.append("  WARNING: Scores are tightly compressed — possible wrong embedding model")
-
-    # Diagnostic hints from environment
-    hints = getattr(obs, "diagnostic_hints", [])
-    if hints:
-        lines.append("\n## Diagnostic Hints")
-        for h in hints:
-            lines.append(f"  - {h}")
-
-    # Action error feedback
-    err = getattr(obs, "last_action_error", None)
-    if err:
-        lines.append(f"\n## Last Action Error: {err}")
-
-    # Estimated task score so the agent knows whether to submit
-    efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
-    if obs.task_id in (1, 2):
-        est_score = 0.60 * m.mean_coverage + 0.25 * m.mean_precision + 0.15 * efficiency
-        lines.append(f"\n## Estimated Task Score: {est_score:.3f} (need >= 0.75, aim for >= 0.78)")
-    else:
-        mh = m.multi_hop_coverage or 0.0
-        est_score = 0.55 * m.mean_coverage + 0.25 * m.mean_precision + 0.20 * mh
-        lines.append(f"\n## Estimated Task Score: {est_score:.3f} (need >= 0.70, multi_hop > 0.60)")
-
-    lines.append("\nAnalyze the situation and return your reasoning followed by a JSON action.")
-    return "\n".join(lines)
+    return json.dumps(payload, ensure_ascii=True)
 
 
-def _extract_last_action_error(obs: RAGDebugObservation) -> Optional[str]:
-    err = getattr(obs, "last_action_error", None)
-    if err is None:
-        return None
-    return str(err)
+def _clamp_int(value: Any, low: int, high: int, default: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = default
+    return max(low, min(high, parsed))
 
 
-def _estimate_task_score(obs: RAGDebugObservation) -> float:
+def _clamp_float(value: Any, low: float, high: float, default: float) -> float:
+    try:
+        parsed = float(value)
+    except Exception:
+        parsed = default
+    return max(low, min(high, parsed))
+
+
+def _estimated_score(obs: RAGDebugObservation) -> float:
     m = obs.metrics
-    efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
     if obs.task_id in (1, 2):
+        efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
         score = 0.60 * m.mean_coverage + 0.25 * m.mean_precision + 0.15 * efficiency
     else:
         mh = m.multi_hop_coverage or 0.0
@@ -435,369 +441,133 @@ def _estimate_task_score(obs: RAGDebugObservation) -> float:
     return min(max(score, 0.0), 1.0)
 
 
-def _submit_ready(obs: RAGDebugObservation) -> bool:
+def _is_submit_ready(obs: RAGDebugObservation) -> bool:
     m = obs.metrics
-    est_score = _estimate_task_score(obs)
+    score = _estimated_score(obs)
     if obs.task_id in (1, 2):
         return (
-            est_score >= 0.77
+            score >= 0.77
             and m.mean_coverage >= 0.80
-            and m.mean_precision >= 0.40
+            and m.mean_precision >= 0.35
             and m.n_empty_retrievals == 0
         )
-    mh = m.multi_hop_coverage or 0.0
-    return est_score >= 0.78 and mh > 0.60 and m.n_empty_retrievals == 0
-
-
-def _precision_recovery_action(obs: RAGDebugObservation) -> RAGDebugAction:
-    """Recover precision after high-coverage / low-precision plateaus."""
-    metrics = obs.metrics
-    cfg = obs.pipeline_config
-
-    if not cfg.use_reranking:
-        return RAGDebugAction(
-            action_type=ActionType.TOGGLE_RERANKING,
-            params={"enabled": True},
-        )
-
-    if cfg.similarity_threshold < 0.62:
-        bump = 0.12 if metrics.mean_precision < 0.30 else 0.08
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_THRESHOLD,
-            params={"value": round(min(0.65, cfg.similarity_threshold + bump), 2)},
-        )
-
-    if cfg.top_k > 7:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_TOP_K,
-            params={"value": max(5, cfg.top_k - 2)},
-        )
-
-    return RAGDebugAction(
-        action_type=ActionType.ADJUST_THRESHOLD,
-        params={"value": round(min(0.70, cfg.similarity_threshold + 0.05), 2)},
+    return (
+        score >= 0.72
+        and m.mean_coverage >= 0.70
+        and m.mean_precision >= 0.30
+        and (m.multi_hop_coverage or 0.0) > 0.60
+        and m.n_empty_retrievals == 0
     )
 
 
-def _task12_policy_action(obs: RAGDebugObservation) -> RAGDebugAction:
-    """Deterministic recovery policy tuned for Tasks 1/2 stability."""
-    metrics = obs.metrics
+def _validate_submit_or_raise(action: RAGDebugAction, obs: RAGDebugObservation) -> None:
+    """Reject premature submit actions instead of falling back to heuristic recovery."""
+    if action.action_type == ActionType.SUBMIT and not _is_submit_ready(obs):
+        raise ValueError("submit requested before readiness criteria were met")
+
+
+def _sanitize_action(action: RAGDebugAction, obs: RAGDebugObservation) -> RAGDebugAction:
     cfg = obs.pipeline_config
-    est_score = _estimate_task_score(obs)
+    params = dict(action.params or {})
 
-    if _submit_ready(obs):
-        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
-
-    # 1) Empty retrievals are highest-priority blockers.
-    if metrics.n_empty_retrievals > 0:
-        if cfg.similarity_threshold > 0.10:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_THRESHOLD,
-                params={"value": round(max(0.05, cfg.similarity_threshold - 0.10), 2)},
-            )
-        if cfg.top_k < 18:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_TOP_K,
-                params={"value": min(20, cfg.top_k + 4)},
-            )
-
-    # 2) Context overflow must be resolved before precision can stabilize.
-    if metrics.n_context_overflows > 0:
-        if cfg.context_window_limit < 16384:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_CONTEXT_LIMIT,
-                params={"value": min(16384, cfg.context_window_limit * 2)},
-            )
-        if cfg.top_k > 8:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_TOP_K,
-                params={"value": max(6, cfg.top_k - 2)},
-            )
-
-    # 3) Low coverage recovery.
-    if metrics.mean_coverage < 0.75:
-        if cfg.top_k < 16:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_TOP_K,
-                params={"value": min(18, cfg.top_k + 3)},
-            )
-        if cfg.similarity_threshold > 0.12:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_THRESHOLD,
-                params={"value": round(max(0.05, cfg.similarity_threshold - 0.08), 2)},
-            )
-        if cfg.chunk_size > 384:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_CHUNK_SIZE,
-                params={"value": max(256, int(cfg.chunk_size * 0.75))},
-            )
-
-    # 4) High coverage but low precision plateau.
-    if metrics.mean_coverage >= 0.80 and metrics.mean_precision < 0.40:
-        return _precision_recovery_action(obs)
-
-    # 5) If close to threshold and end of budget, submit to reduce variance.
-    if (
-        obs.steps_taken >= obs.max_steps - 2
-        and est_score >= 0.73
-        and metrics.n_empty_retrievals == 0
-        and metrics.mean_coverage >= 0.75
-    ):
-        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
-
-    # 6) Generic cleanup before submit readiness.
-    if not cfg.use_reranking and metrics.mean_precision < 0.45:
-        return RAGDebugAction(
-            action_type=ActionType.TOGGLE_RERANKING,
-            params={"enabled": True},
+    if action.action_type == ActionType.ADJUST_CHUNK_SIZE:
+        params["value"] = _clamp_int(params.get("value"), 64, 2048, cfg.chunk_size)
+    elif action.action_type == ActionType.ADJUST_CHUNK_OVERLAP:
+        params["value"] = _clamp_int(params.get("value"), 0, 500, cfg.chunk_overlap)
+    elif action.action_type == ActionType.ADJUST_THRESHOLD:
+        params["value"] = round(
+            _clamp_float(params.get("value"), 0.0, 1.0, cfg.similarity_threshold),
+            2,
         )
-    if metrics.mean_precision < 0.45 and cfg.similarity_threshold < 0.60:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_THRESHOLD,
-            params={"value": round(min(0.65, cfg.similarity_threshold + 0.08), 2)},
-        )
+    elif action.action_type == ActionType.ADJUST_TOP_K:
+        params["value"] = _clamp_int(params.get("value"), 1, 50, cfg.top_k)
+    elif action.action_type == ActionType.SWAP_EMBEDDING_MODEL:
+        model = str(params.get("model", cfg.embedding_model.value)).lower()
+        if model not in {"general", "medical", "legal", "code"}:
+            model = cfg.embedding_model.value
+        params["model"] = model
+    elif action.action_type == ActionType.TOGGLE_RERANKING:
+        params["enabled"] = bool(params.get("enabled", True))
+    elif action.action_type == ActionType.ADJUST_CONTEXT_LIMIT:
+        params["value"] = _clamp_int(params.get("value"), 512, 16384, cfg.context_window_limit)
+    elif action.action_type == ActionType.REWRITE_QUERY:
+        valid_ids = {q.query_id for q in obs.query_results}
+        qid = _clamp_int(params.get("query_id"), 0, 10_000, min(valid_ids) if valid_ids else 0)
+        if qid not in valid_ids and valid_ids:
+            qid = min(valid_ids)
+        params["query_id"] = qid
+        params["strategy"] = "rephrase"
+    else:
+        params = {}
 
-    return RAGDebugAction(
-        action_type=ActionType.ADJUST_TOP_K,
-        params={"value": min(16, cfg.top_k + 1)},
-    )
-
-
-def _stabilize_action(obs: RAGDebugObservation, action: RAGDebugAction) -> RAGDebugAction:
-    """Apply conservative policy guardrails to reduce baseline variance."""
-    metrics = obs.metrics
-    cfg = obs.pipeline_config
-
-    # Never allow premature submit; use deterministic fallback policy instead.
-    if action.action_type == ActionType.SUBMIT and not _submit_ready(obs):
-        return _heuristic_action(obs)
-
-    if obs.task_id in (1, 2):
-        planner_action = _task12_policy_action(obs)
-
-        # Tasks 1/2 are config faults; model swaps are usually wasted steps.
-        if action.action_type in (
-            ActionType.SWAP_EMBEDDING_MODEL,
-            ActionType.REWRITE_QUERY,
-            ActionType.ADJUST_CHUNK_OVERLAP,
-        ):
-            return planner_action
-
-        # In high-coverage / low-precision states, avoid actions that commonly worsen precision.
-        if metrics.mean_coverage >= 0.85 and metrics.mean_precision < 0.35:
-            if action.action_type == ActionType.ADJUST_TOP_K:
-                try:
-                    requested_top_k = int(action.params.get("value", cfg.top_k))
-                except Exception:
-                    requested_top_k = cfg.top_k
-                if requested_top_k >= cfg.top_k:
-                    return planner_action
-
-            if action.action_type == ActionType.ADJUST_THRESHOLD:
-                try:
-                    requested_threshold = float(action.params.get("value", cfg.similarity_threshold))
-                except Exception:
-                    requested_threshold = cfg.similarity_threshold
-                if requested_threshold < cfg.similarity_threshold:
-                    return planner_action
-
-        # When coverage is clearly low, prefer planner's deterministic recovery path.
-        if metrics.mean_coverage < 0.50 and action.action_type in (
-            ActionType.ADJUST_THRESHOLD,
-            ActionType.ADJUST_TOP_K,
-            ActionType.ADJUST_CHUNK_SIZE,
-            ActionType.TOGGLE_RERANKING,
-        ):
-            return planner_action
-
-        # If we're at the end of the budget and already good enough, submit deterministically.
-        if obs.steps_taken >= obs.max_steps - 1 and _submit_ready(obs):
-            return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
-
-    return action
+    return RAGDebugAction(action_type=action.action_type, params=params)
 
 
-def _heuristic_action(obs: RAGDebugObservation) -> RAGDebugAction:
-    """Smart heuristic fallback when LLM parsing fails."""
-    metrics = obs.metrics
-    cfg = obs.pipeline_config
-
-    if obs.task_id in (1, 2):
-        return _task12_policy_action(obs)
-
-    # Priority 1: Fix empty retrievals (most impactful)
-    if metrics.n_empty_retrievals > 0:
-        if cfg.similarity_threshold > 0.15:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_THRESHOLD,
-                params={"value": round(max(0.05, cfg.similarity_threshold - 0.15), 2)},
-            )
-        if cfg.top_k < 20:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_TOP_K,
-                params={"value": min(30, cfg.top_k + 5)},
-            )
-
-    # Priority 2: Wrong embedding model (Task 3 specific)
-    if obs.task_id == 3 and cfg.embedding_model.value != "medical":
-        return RAGDebugAction(
-            action_type=ActionType.SWAP_EMBEDDING_MODEL,
-            params={"model": "medical"},
-        )
-
-    # Priority 3: Score compression detection → swap model or enable reranking
-    all_scores = [s for qr in obs.query_results for s in qr.retrieval_scores]
-    if all_scores and len(all_scores) > 3:
-        import statistics
-        score_std = statistics.stdev(all_scores)
-        if score_std < 0.05 and not cfg.use_reranking:
-            return RAGDebugAction(
-                action_type=ActionType.TOGGLE_RERANKING,
-                params={"enabled": True},
-            )
-
-    # Priority 4: Fix context overflow
-    if metrics.n_context_overflows > 0:
-        if cfg.context_window_limit < 16384:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_CONTEXT_LIMIT,
-                params={"value": min(16384, cfg.context_window_limit * 2)},
-            )
-        elif cfg.top_k > 5:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_TOP_K,
-                params={"value": max(5, cfg.top_k - 3)},
-            )
-
-    # Priority 5: Tasks 1/2 precision recovery once coverage is already strong.
-    if obs.task_id in (1, 2) and metrics.mean_coverage >= 0.82 and metrics.mean_precision < 0.40:
-        return _precision_recovery_action(obs)
-
-    # Priority 6: High coverage but low precision → raise threshold to filter irrelevant chunks
-    # This handles the top_k_too_small recovery: after increasing top_k to fix coverage,
-    # the threshold is too permissive and lets in too many irrelevant chunks.
-    if metrics.mean_coverage > 0.85 and metrics.mean_precision < 0.35:
-        new_threshold = round(min(0.70, cfg.similarity_threshold + 0.12), 2)
-        if new_threshold > cfg.similarity_threshold:
-            return RAGDebugAction(
-                action_type=ActionType.ADJUST_THRESHOLD,
-                params={"value": new_threshold},
-            )
-
-    # Priority 7: Low coverage → increase top_k
-    if metrics.mean_coverage < 0.6 and cfg.top_k < 20:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_TOP_K,
-            params={"value": min(30, cfg.top_k + 5)},
-        )
-
-    # Priority 8: Enable reranking if precision is poor
-    if metrics.mean_precision < 0.4 and not cfg.use_reranking:
-        return RAGDebugAction(
-            action_type=ActionType.TOGGLE_RERANKING,
-            params={"enabled": True},
-        )
-
-    # Priority 9: Chunk size reduction for large chunks
-    if metrics.mean_coverage < 0.6 and cfg.chunk_size > 384:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_CHUNK_SIZE,
-            params={"value": max(256, cfg.chunk_size // 2)},
-        )
-
-    # Priority 10: Reduce chunk size if it's large and coverage is low
-    if metrics.mean_coverage < 0.7 and cfg.chunk_size > 300:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_CHUNK_SIZE,
-            params={"value": max(256, cfg.chunk_size // 2)},
-        )
-
-    # Priority 11: Lower threshold further if coverage is still not great
-    if metrics.mean_coverage < 0.7 and cfg.similarity_threshold > 0.10:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_THRESHOLD,
-            params={"value": round(max(0.05, cfg.similarity_threshold - 0.10), 2)},
-        )
-
-    # Priority 12: Submit once deterministic readiness checks pass.
-    if _submit_ready(obs):
-        return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
-
-    # Fallback: if coverage is OK but precision still bad, keep raising threshold
-    if metrics.mean_precision < 0.5 and cfg.similarity_threshold < 0.65:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_THRESHOLD,
-            params={"value": round(min(0.65, cfg.similarity_threshold + 0.10), 2)},
-        )
-
-    # Fallback: increase top_k if coverage is still low
-    if metrics.mean_coverage < 0.85 and cfg.top_k < 30:
-        return RAGDebugAction(
-            action_type=ActionType.ADJUST_TOP_K,
-            params={"value": min(30, cfg.top_k + 5)},
-        )
-
-    # Last resort submit
-    return RAGDebugAction(action_type=ActionType.SUBMIT, params={})
-
-
-def _parse_action_json(raw_text: str, obs: RAGDebugObservation) -> Tuple[RAGDebugAction, str]:
+def _extract_action_json(raw_text: str) -> Optional[Dict[str, Any]]:
     text = raw_text.strip()
-    # Strip markdown code fences
+    if not text:
+        return None
+
     if "```" in text:
-        text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
+        text = "\n".join(
+            line for line in text.splitlines() if not line.strip().startswith("```")
+        ).strip()
 
-    action = None
-    # Search lines bottom-up for a JSON action (reasoning comes before the JSON)
     for line in reversed(text.splitlines()):
-        line = line.strip()
-        if line.startswith("{") and "action_type" in line:
-            try:
-                data = json.loads(line)
-                action = RAGDebugAction(
-                    action_type=ActionType(data["action_type"]),
-                    params=data.get("params", {}),
-                )
-                break
-            except Exception:
-                continue
-
-    # Fallback: try parsing the full text as JSON
-    if action is None:
+        candidate = line.strip()
+        if not (candidate.startswith("{") and "action_type" in candidate):
+            continue
         try:
-            data = json.loads(text)
-            action = RAGDebugAction(
-                action_type=ActionType(data["action_type"]),
-                params=data.get("params", {}),
-            )
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
-            action = _heuristic_action(obs)
+            continue
 
-    action_str = json.dumps(
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    return None
+
+
+def _parse_action(raw_text: str, obs: RAGDebugObservation) -> RAGDebugAction:
+    payload = _extract_action_json(raw_text)
+    if payload is None:
+        raise ValueError("no valid JSON action found in model output")
+
+    try:
+        action = RAGDebugAction(
+            action_type=ActionType(str(payload.get("action_type", "submit"))),
+            params=payload.get("params", {}),
+        )
+    except Exception as exc:
+        raise ValueError(f"invalid action payload: {exc}") from exc
+
+    sanitized = _sanitize_action(action, obs)
+    _validate_submit_or_raise(sanitized, obs)
+    return sanitized
+
+
+def _action_text(action: RAGDebugAction) -> str:
+    return json.dumps(
         {"action_type": action.action_type.value, "params": action.params},
         separators=(",", ":"),
+        ensure_ascii=True,
     )
-    return action, action_str
 
 
 def _compute_score(obs: RAGDebugObservation) -> float:
-    m = obs.metrics
-    efficiency = max(0.0, 1.0 - obs.steps_taken / max(obs.max_steps, 1))
-
-    if obs.task_id == 3:
-        mh = m.multi_hop_coverage or 0.0
-        score = 0.55 * m.mean_coverage + 0.25 * m.mean_precision + 0.20 * mh
-    else:
-        score = 0.60 * m.mean_coverage + 0.25 * m.mean_precision + 0.15 * efficiency
-
-    return min(max(score, 0.0), 1.0)
+    return _estimated_score(obs)
 
 
 def _compute_success(obs: RAGDebugObservation, score: float) -> bool:
     if obs.task_id in (1, 2):
         return score >= 0.75
-    mh = obs.metrics.multi_hop_coverage or 0.0
-    return score >= 0.70 and mh > 0.60
+    return score >= 0.70 and (obs.metrics.multi_hop_coverage or 0.0) > 0.60
 
 
 async def _connect_env() -> RAGDebugEnv:
@@ -806,114 +576,146 @@ async def _connect_env() -> RAGDebugEnv:
     return RAGDebugEnv(base_url=SERVER_URL)
 
 
-async def _next_action(
-    client: OpenAI,
-    obs: RAGDebugObservation,
-    messages: List[dict],
-    last_reward: Optional[float] = None,
+async def _choose_action(
+    llm_client: OpenAI,
+    observation: RAGDebugObservation,
+    messages: List[Dict[str, str]],
+    previous_reward: Optional[float],
+    recent_history: List[Dict[str, Any]],
 ) -> Tuple[RAGDebugAction, str]:
-    prompt = _format_observation(obs, last_reward=last_reward)
-    messages.append({"role": "user", "content": prompt})
-    last_exc = None
+    user_prompt = _build_observation_prompt(
+        observation,
+        previous_reward=previous_reward,
+        recent_history=recent_history,
+    )
+    messages.append({"role": "user", "content": user_prompt})
+
     for attempt in range(3):
         try:
-            completion = client.chat.completions.create(
+            completion = llm_client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=messages,
                 temperature=TEMPERATURE,
                 max_tokens=MAX_TOKENS,
             )
             raw = completion.choices[0].message.content or ""
-            messages.append({"role": "assistant", "content": raw})
-            parsed_action, _ = _parse_action_json(raw, obs)
-            action = _stabilize_action(obs, parsed_action)
-            action_str = json.dumps(
-                {"action_type": action.action_type.value, "params": action.params},
-                separators=(",", ":"),
-            )
-            return action, action_str
         except Exception as exc:
-            last_exc = exc
-            if attempt < 2:
-                await asyncio.sleep(2 ** attempt)
-                continue
-    # All retries exhausted — raise so the caller sees the real error
-    raise RuntimeError(f"LLM failed after 3 attempts: {last_exc}") from last_exc
+            raise RuntimeError(f"LLM request failed: {exc}") from exc
+
+        messages.append({"role": "assistant", "content": raw})
+        try:
+            action = _parse_action(raw, observation)
+            return action, _action_text(action)
+        except ValueError as exc:
+            if attempt >= 2:
+                raise RuntimeError(f"LLM produced invalid action after 3 attempts: {exc}") from exc
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Your previous output was invalid: "
+                        f"{_as_single_line(str(exc))}. "
+                        "Return exactly one valid JSON action object with schema "
+                        '{"action_type":"<type>","params":{...}} and no extra text.'
+                    ),
+                }
+            )
+
+    raise RuntimeError("failed to produce a valid action")
 
 
-# ─── Main ───────────────────────────────────────────────────────────────────────
-
-async def main() -> None:
-    task_name = f"task_{TASK_ID}"
+async def _run_single_task(task_id: int, llm_client: OpenAI) -> None:
+    task_name = f"task_{task_id}"
 
     rewards: List[float] = []
-    messages: List[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    step_history: List[Dict[str, Any]] = []
     steps_taken = 0
-    score = 0.0
     success = False
-    fatal_error: Optional[str] = None
+    score = 0.0
 
     env: Optional[RAGDebugEnv] = None
-    obs: Optional[RAGDebugObservation] = None
     initial_obs: Optional[RAGDebugObservation] = None
+    obs: Optional[RAGDebugObservation] = None
     max_steps = MAX_STEPS_OVERRIDE
+    prev_coverage: Optional[float] = None
+    prev_precision: Optional[float] = None
 
-    _show_banner()
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         env = await _connect_env()
 
-        result = await env.reset(task_id=TASK_ID)
-        obs = result.observation
+        reset_result = await env.reset(task_id=task_id)
+        obs = reset_result.observation
         initial_obs = obs
+        done = bool(reset_result.done)
+
         max_steps = min(obs.max_steps, MAX_STEPS_OVERRIDE)
+        _log_episode_start(obs, max_steps=max_steps)
+        prev_coverage = obs.metrics.mean_coverage
+        prev_precision = obs.metrics.mean_precision
+        messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        _show_task_info(obs)
-        _show_initial_state(obs)
+        while not done and steps_taken < max_steps:
+            previous_reward = rewards[-1] if rewards else None
+            action, action_text = await _choose_action(
+                llm_client=llm_client,
+                observation=obs,
+                messages=messages,
+                previous_reward=previous_reward,
+                recent_history=step_history[-6:],
+            )
 
-        prev_cov = obs.metrics.mean_coverage
-        prev_prec = obs.metrics.mean_precision
+            step_result = await env.step(action)
+            obs = step_result.observation
+            reward = float(step_result.reward or 0.0)
+            done = bool(step_result.done)
 
-        for step in range(1, max_steps + 1):
-            if result.done:
-                break
-
-            last_reward = rewards[-1] if rewards else None
-            action, action_str = await _next_action(llm_client, obs, messages, last_reward=last_reward)
-
-            try:
-                result = await env.step(action)
-            except Exception as exc:
-                log_step(step=step, action=action_str, reward=0.0, done=False, error=str(exc))
-                break
-
-            obs = result.observation
-            reward = float(result.reward or 0.0)
-            done = bool(result.done)
-            step_error = _extract_last_action_error(obs)
-
+            steps_taken += 1
             rewards.append(reward)
-            steps_taken = step
-            log_step(step=step, action=action_str, reward=reward, done=done, error=step_error)
 
-            _show_step(step, max_steps, action_str, reward, obs, prev_cov, prev_prec)
-
-            prev_cov = obs.metrics.mean_coverage
-            prev_prec = obs.metrics.mean_precision
-
-            if done:
-                break
+            last_error = getattr(obs, "last_action_error", None)
+            log_step(
+                step=steps_taken,
+                action=action_text,
+                reward=reward,
+                done=done,
+                error=last_error,
+            )
+            _log_step_details(
+                step=steps_taken,
+                max_steps=max_steps,
+                action_text=action_text,
+                reward=reward,
+                done=done,
+                obs=obs,
+                prev_coverage=prev_coverage,
+                prev_precision=prev_precision,
+            )
+            step_history.append(
+                {
+                    "step": steps_taken,
+                    "action": action_text,
+                    "reward": round(reward, 4),
+                    "done": done,
+                    "error": last_error,
+                    "coverage": round(obs.metrics.mean_coverage, 4),
+                    "precision": round(obs.metrics.mean_precision, 4),
+                    "est_score": round(_estimated_score(obs), 4),
+                }
+            )
+            prev_coverage = obs.metrics.mean_coverage
+            prev_precision = obs.metrics.mean_precision
 
         if obs is not None:
             score = _compute_score(obs)
             success = _compute_success(obs, score)
 
     except Exception as exc:
-        # Never let runtime faults bubble out as a non-zero exit code in evaluator mode.
-        fatal_error = _one_line(str(exc))
-        _rich(f"  [FATAL] {fatal_error}")
+        _stderr(
+            f"runtime_error: {exc.__class__.__name__}: "
+            f"{_as_single_line(str(exc))}"
+        )
         if obs is not None:
             score = _compute_score(obs)
             success = _compute_success(obs, score)
@@ -929,22 +731,30 @@ async def main() -> None:
                 pass
 
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        _log_final_summary(
+            success=success,
+            score=score,
+            steps_taken=steps_taken,
+            max_steps=max_steps,
+            rewards=rewards,
+            initial_obs=initial_obs,
+            obs=obs,
+        )
 
-        try:
-            _show_summary(
-                success=success,
-                score=score,
-                steps=steps_taken,
-                max_steps=max_steps,
-                rewards=rewards,
-                initial_obs=initial_obs,
-                final_obs=obs,
-            )
-        except Exception as summary_exc:
-            _rich(f"  [SUMMARY ERROR] {_one_line(str(summary_exc))}")
 
-        if fatal_error:
-            _rich(f"  [END ERROR] {fatal_error}")
+async def main() -> None:
+    _validate_required_env_vars()
+    task_ids = _parse_task_ids(os.getenv("RAG_DEBUG_TASK_IDS", "all"))
+
+    # Required by user request: initialize OpenAI client directly from injected env vars.
+    llm_client = OpenAI(
+        base_url=os.environ["API_BASE_URL"],
+        api_key=os.environ["API_KEY"],
+    )
+
+    _stderr("Planned tasks: " + ", ".join(f"task_{task_id}" for task_id in task_ids))
+    for task_id in task_ids:
+        await _run_single_task(task_id=task_id, llm_client=llm_client)
 
 
 if __name__ == "__main__":
