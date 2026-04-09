@@ -743,19 +743,50 @@ async def _run_single_task(task_id: int, llm_client: OpenAI) -> None:
 
 
 async def main() -> None:
-    _validate_required_env_vars()
-    task_ids = _parse_task_ids(os.getenv("RAG_DEBUG_TASK_IDS", "all"))
+    try:
+        _validate_required_env_vars()
+    except Exception as exc:
+        _stderr(
+            f"startup_error: {exc.__class__.__name__}: "
+            f"{_as_single_line(str(exc))}"
+        )
+        return
 
-    # Required by user request: initialize OpenAI client directly from injected env vars.
-    llm_client = OpenAI(
-        base_url=os.environ["API_BASE_URL"],
-        api_key=os.environ["API_KEY"],
-    )
+    try:
+        task_ids = _parse_task_ids(os.getenv("RAG_DEBUG_TASK_IDS", "all"))
+    except Exception as exc:
+        _stderr(
+            f"startup_warning: invalid RAG_DEBUG_TASK_IDS; defaulting to all ({exc.__class__.__name__}: "
+            f"{_as_single_line(str(exc))})"
+        )
+        task_ids = DEFAULT_TASK_IDS
+
+    try:
+        # Required by user request: initialize OpenAI client directly from injected env vars.
+        llm_client = OpenAI(
+            base_url=os.environ["API_BASE_URL"],
+            api_key=os.environ["API_KEY"],
+        )
+    except Exception as exc:
+        _stderr(
+            f"startup_error: failed to initialize OpenAI client ({exc.__class__.__name__}: "
+            f"{_as_single_line(str(exc))})"
+        )
+        return
 
     _stderr("Planned tasks: " + ", ".join(f"task_{task_id}" for task_id in task_ids))
     for task_id in task_ids:
-        await _run_single_task(task_id=task_id, llm_client=llm_client)
+        try:
+            await _run_single_task(task_id=task_id, llm_client=llm_client)
+        except Exception as exc:
+            _stderr(
+                f"task_runtime_error: task_{task_id} failed with {exc.__class__.__name__}: "
+                f"{_as_single_line(str(exc))}"
+            )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as exc:
+        _stderr(f"fatal_error: {exc.__class__.__name__}: {_as_single_line(str(exc))}")
