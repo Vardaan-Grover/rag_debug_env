@@ -49,9 +49,9 @@ from client import RAGDebugEnv
 from models import ActionType, RAGDebugAction, RAGDebugObservation
 
 
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "nebius/Qwen/Qwen2.5-72B-Instruct"
+API_KEY = os.environ["API_KEY"]
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost:7860")
@@ -862,15 +862,6 @@ async def main() -> None:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        # Diagnostic: log resolved config to stderr (key is masked)
-        _key = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-        _url = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-        _masked = ((_key[:8] + "...") if _key and len(_key) > 8 else repr(_key))
-        print(f"[CONFIG] api_key={_masked} base_url={_url} model={MODEL_NAME}", file=sys.stderr, flush=True)
-
-        if not API_KEY:
-            raise RuntimeError("Missing HF_TOKEN/API_KEY for OpenAI client")
-
         llm_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         env = await _connect_env()
 
