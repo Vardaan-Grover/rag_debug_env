@@ -42,6 +42,8 @@ import os
 import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
+load_dotenv()
 
 from openai import OpenAI
 
