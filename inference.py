@@ -50,7 +50,7 @@ from models import ActionType, RAGDebugAction, RAGDebugObservation
 
 
 API_KEY = os.environ["API_KEY"]
-API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
+API_BASE_URL = os.environ["API_BASE_URL"]
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
