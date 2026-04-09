@@ -862,6 +862,12 @@ async def main() -> None:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
+        # Diagnostic: log resolved config to stderr (key is masked)
+        _key = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+        _url = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+        _masked = ((_key[:8] + "...") if _key and len(_key) > 8 else repr(_key))
+        print(f"[CONFIG] api_key={_masked} base_url={_url} model={MODEL_NAME}", file=sys.stderr, flush=True)
+
         if not API_KEY:
             raise RuntimeError("Missing HF_TOKEN/API_KEY for OpenAI client")
 
