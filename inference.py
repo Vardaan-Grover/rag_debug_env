@@ -55,9 +55,6 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 HF_TOKEN = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
-if HF_TOKEN is None:
-    raise ValueError("HF_TOKEN environment variable is required for authentication")
-
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
 SERVER_URL = os.getenv("SERVER_URL", "http://localhost:7860")
@@ -73,9 +70,6 @@ HUMAN_LOGS_ENABLED = os.getenv("RAG_DEBUG_HUMAN_LOGS", "1").strip().lower() not 
     "off",
     "no",
 }
-
-REQUIRED_ENV_VARS = ("API_BASE_URL", "HF_TOKEN", "MODEL_NAME")
-
 
 SYSTEM_PROMPT = """You are an expert RAG retrieval debugger.
 Goal: maximize final task score within the available step budget.
@@ -105,34 +99,6 @@ Valid action_type values:
 - rewrite_query with params {"query_id": int, "strategy": "rephrase"}
 - submit with params {}
 """
-
-
-def _validate_required_env_vars() -> None:
-    missing: List[str] = []
-
-    for name in REQUIRED_ENV_VARS:
-        value = os.getenv(name)
-        if value is None or not value.strip():
-            missing.append(name)
-
-    api_base_url_value = (API_BASE_URL or "").strip()
-    model_name_value = (MODEL_NAME or "").strip()
-
-    placeholder_values: List[str] = []
-    if api_base_url_value == "<your-active-endpoint>":
-        placeholder_values.append("API_BASE_URL")
-    if model_name_value == "<your-active-model>":
-        placeholder_values.append("MODEL_NAME")
-
-    if missing or placeholder_values:
-        parts: List[str] = []
-        if missing:
-            parts.append(f"missing={','.join(missing)}")
-        if placeholder_values:
-            parts.append(f"placeholder={','.join(placeholder_values)}")
-        raise EnvironmentError(
-            "Required environment configuration is invalid: " + " ".join(parts)
-        )
 
 
 def _parse_task_ids(value: str) -> Tuple[int, ...]:
@@ -757,33 +723,10 @@ async def main() -> None:
         )
         task_ids = DEFAULT_TASK_IDS
 
-    try:
-        _validate_required_env_vars()
-    except Exception as exc:
-        _stderr(
-            f"startup_error: {exc.__class__.__name__}: "
-            f"{_as_single_line(str(exc))}"
-        )
-        for task_id in task_ids:
-            log_start(task=f"task_{task_id}", env=BENCHMARK, model=MODEL_NAME or "unknown")
-            log_end(success=False, steps=0, score=0.0, rewards=[])
-        return
-
-    try:
-        # Required by user request: initialize OpenAI client directly from injected env vars.
-        llm_client = OpenAI(
-            base_url=os.environ["API_BASE_URL"],
-            api_key=os.environ["API_KEY"],
-        )
-    except Exception as exc:
-        _stderr(
-            f"startup_error: failed to initialize OpenAI client ({exc.__class__.__name__}: "
-            f"{_as_single_line(str(exc))})"
-        )
-        for task_id in task_ids:
-            log_start(task=f"task_{task_id}", env=BENCHMARK, model=MODEL_NAME or "unknown")
-            log_end(success=False, steps=0, score=0.0, rewards=[])
-        return
+    llm_client = OpenAI(
+        base_url=API_BASE_URL,
+        api_key=HF_TOKEN,
+    )
 
     _stderr("Planned tasks: " + ", ".join(f"task_{task_id}" for task_id in task_ids))
     for task_id in task_ids:
