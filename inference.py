@@ -49,9 +49,12 @@ from client import RAGDebugEnv
 from models import ActionType, RAGDebugAction, RAGDebugObservation
 
 
-API_BASE_URL = os.getenv("API_BASE_URL")
-MODEL_NAME = os.getenv("MODEL_NAME")
-API_KEY = os.getenv("API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN = os.getenv("HF_TOKEN")
+
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required for authentication")
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 
@@ -69,7 +72,7 @@ HUMAN_LOGS_ENABLED = os.getenv("RAG_DEBUG_HUMAN_LOGS", "1").strip().lower() not 
     "no",
 }
 
-REQUIRED_ENV_VARS = ("API_BASE_URL", "API_KEY", "MODEL_NAME")
+REQUIRED_ENV_VARS = ("API_BASE_URL", "HF_TOKEN", "MODEL_NAME")
 
 
 SYSTEM_PROMPT = """You are an expert RAG retrieval debugger.
