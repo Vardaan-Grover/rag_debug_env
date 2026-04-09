@@ -362,7 +362,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     rewards_text = ",".join(f"{r:.2f}" for r in rewards)
     clipped_score = min(max(float(score), 0.0), 1.0)
     print(
-        f"[END] success={_bool_text(success)} steps={steps} score={clipped_score:.3f} rewards={rewards_text}",
+        f"[END] success={_bool_text(success)} steps={steps} score={clipped_score:.2f} rewards={rewards_text}",
         flush=True,
     )
 
@@ -744,15 +744,6 @@ async def _run_single_task(task_id: int, llm_client: OpenAI) -> None:
 
 async def main() -> None:
     try:
-        _validate_required_env_vars()
-    except Exception as exc:
-        _stderr(
-            f"startup_error: {exc.__class__.__name__}: "
-            f"{_as_single_line(str(exc))}"
-        )
-        return
-
-    try:
         task_ids = _parse_task_ids(os.getenv("RAG_DEBUG_TASK_IDS", "all"))
     except Exception as exc:
         _stderr(
@@ -760,6 +751,18 @@ async def main() -> None:
             f"{_as_single_line(str(exc))})"
         )
         task_ids = DEFAULT_TASK_IDS
+
+    try:
+        _validate_required_env_vars()
+    except Exception as exc:
+        _stderr(
+            f"startup_error: {exc.__class__.__name__}: "
+            f"{_as_single_line(str(exc))}"
+        )
+        for task_id in task_ids:
+            log_start(task=f"task_{task_id}", env=BENCHMARK, model=MODEL_NAME or "unknown")
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
 
     try:
         # Required by user request: initialize OpenAI client directly from injected env vars.
@@ -772,6 +775,9 @@ async def main() -> None:
             f"startup_error: failed to initialize OpenAI client ({exc.__class__.__name__}: "
             f"{_as_single_line(str(exc))})"
         )
+        for task_id in task_ids:
+            log_start(task=f"task_{task_id}", env=BENCHMARK, model=MODEL_NAME or "unknown")
+            log_end(success=False, steps=0, score=0.0, rewards=[])
         return
 
     _stderr("Planned tasks: " + ", ".join(f"task_{task_id}" for task_id in task_ids))
