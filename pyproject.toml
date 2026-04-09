@@ -36,7 +36,7 @@ server = "server.app:main"
 [tool.setuptools]
 include-package-data = true
 # Since everything is in the root, we package our top-level modules
-py-modules = ["client", "models", "eval_embedding_models"]
+py-modules = ["client", "models"]
 packages = ["server", "corpora", "outputs"]
 
 [dependency-groups]

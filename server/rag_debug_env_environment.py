@@ -131,6 +131,9 @@ class RAGDebugEnvironment(Environment):
         **kwargs: Any,
     ) -> RAGDebugObservation:
         """Reset the environment and return the initial observation."""
+        # Inherited from openenv.core.env_server.interfaces.Environment.
+        # Clears any OpenEnv framework-level episode state (e.g. step counters
+        # tracked by the base class) before we re-initialise domain-specific state.
         self._reset_rubric()
 
         # Task selection
@@ -851,8 +854,8 @@ class RAGDebugEnvironment(Environment):
             last_action_error=self._last_action_error,
             diagnostic_hints=hints,
             reward_components=self._last_reward_components,
+            reward=reward,
         )
-        obs.reward = reward
         return obs
 
 

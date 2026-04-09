@@ -141,7 +141,7 @@ class RAGDebugAction(Action):
     toggle_reranking      {"enabled": bool}
     adjust_context_limit  {"value": int}        512 ≤ value ≤ 16384
     rewrite_query         {"query_id": int,
-                           "strategy": str}    "expand"|"rephrase"|"decompose"
+                           "strategy": str}    currently only "rephrase" is supported
     submit                {}
     """
     action_type: ActionType = Field(

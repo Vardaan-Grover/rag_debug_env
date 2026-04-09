@@ -29,9 +29,6 @@ _TASK_DESCRIPTION = {
 _N_EPISODE_QUERIES = {1: 5, 2: 5, 3: 5}   # Task 3: 3 regular + 2 multi-hop
 _MAX_STEPS = 10
 
-# Coverage thresholds used for SUBMIT success check / grading
-_SUCCESS_COVERAGE = {1: 0.72, 2: 0.65, 3: 0.60}
-
 # Model name → numpy file suffix
 _MODEL_FILE = {
     EmbeddingModel.GENERAL: "general",

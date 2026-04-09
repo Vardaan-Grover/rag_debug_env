@@ -221,12 +221,12 @@ class TestEndLine:
         line = self._end_line(success=False)
         assert "success=false" in line
 
-    def test_score_three_decimal_places(self):
+    def test_score_two_decimal_places(self):
         line = self._end_line(score=0.85)
         m = re.search(r"score=(\d+\.\d+)", line)
         assert m is not None, "score field not found"
-        assert len(m.group(1).split(".")[1]) == 3, (
-            f"score should have 3 decimal places, got: {m.group(1)!r}"
+        assert len(m.group(1).split(".")[1]) == 2, (
+            f"score should have 2 decimal places, got: {m.group(1)!r}"
         )
 
     def test_rewards_comma_separated(self):
